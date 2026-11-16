@@ -2,7 +2,6 @@ from datetime import timedelta
 
 import pytest
 
-from app.api.network import subnet_usage
 from app.config import get_settings
 from app.db import SessionLocal, utcnow
 from app.models import VM, VMHistory, VMMetric, VMMetricHourly
@@ -129,18 +128,6 @@ def test_metrics_and_rollup():
         row = db.query(VMMetricHourly).filter_by(vm_id=vm_id, ts=hour).one()
         assert (row.cpu_pct_avg, row.cpu_pct_max, row.samples) == (30.0, 50.0, 3)
         assert rollup_hourly(db) == 0  # idempotent
-
-
-def test_subnet_usage():
-    import ipaddress
-    vms = [
-        VM(id=1, name="a", power_state="poweredOn", ip_addresses=["10.0.0.5"], last_known_ips=["10.0.0.5"], is_deleted=False),
-        VM(id=2, name="b", power_state="poweredOn", ip_addresses=["10.0.0.5"], last_known_ips=["10.0.0.5"], is_deleted=False),
-        VM(id=3, name="c", power_state="poweredOff", ip_addresses=[], last_known_ips=["10.0.0.9"], is_deleted=False),
-        VM(id=4, name="d", power_state="poweredOn", ip_addresses=["192.168.1.1"], last_known_ips=[], is_deleted=False),
-    ]
-    (net,) = subnet_usage(vms, [ipaddress.ip_network("10.0.0.0/24")])
-    assert (net["usable"], net["used"], net["free"], net["conflicts"], net["stale"]) == (254, 1, 253, 1, 1)
 
 
 @pytest.mark.parametrize("family,gid,name,expected", [

@@ -58,6 +58,8 @@ def init_db() -> None:
 # Columns added to existing tables after the first release. create_all() only creates missing tables,
 # so databases from an earlier version get these with ALTER TABLE on startup.
 ADDED_COLUMNS = [
+    ("schedules", "variables", "JSON"),
+    ("users", "pending_approval", "BOOLEAN NOT NULL DEFAULT FALSE"),
     ("vms", "critical", "BOOLEAN NOT NULL DEFAULT FALSE"),
     ("vms", "health", "VARCHAR(16) NOT NULL DEFAULT 'ok'"),
     ("vms", "problems", "JSON"),

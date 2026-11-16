@@ -16,6 +16,7 @@ CHOICES = {
     "sync_interval_seconds": [20, 30, 60, 120, 300],
     "agent_report_interval_seconds": [10, 20, 30, 60],
     "agent_inventory_interval_seconds": [900, 1800, 3600, 21600],
+    "ip_scan_interval_minutes": [0, 5, 15, 30, 60],
 }
 
 _lock = threading.Lock()

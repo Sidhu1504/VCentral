@@ -63,6 +63,8 @@ def update_user(user_id: int, body: UserUpdate, request: Request, db: Session = 
     demoting = (changes.get("role") not in (None, "admin") or changes.get("is_active") is False)
     if user.role == "admin" and user.is_active and demoting and _active_admins(db) <= 1:
         raise HTTPException(400, "Cannot remove the last active admin")
+    if changes.get("is_active") is True:
+        user.pending_approval = False  # activating a sign-up approves it
     for field in ("full_name", "email", "role", "is_active"):
         if field in changes:
             setattr(user, field, changes[field])
@@ -91,3 +93,17 @@ def delete_user(user_id: int, request: Request, db: Session = Depends(get_db),
     db.delete(user)
     audit(db, request, admin.username, "delete_user", target=user.username)
     db.commit()
+
+
+@router.post("/{user_id}/approve")
+def approve_user(user_id: int, request: Request, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Let a self-signed-up account in (it stays a Viewer unless an admin changes the role)."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(404, "User not found")
+    if not user.pending_approval:
+        raise HTTPException(400, "This account is not waiting for approval")
+    user.pending_approval, user.is_active = False, True
+    audit(db, request, admin.username, "approve_signup", target=user.username, role=user.role)
+    db.commit()
+    return user_out(user)

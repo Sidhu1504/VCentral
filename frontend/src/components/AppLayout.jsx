@@ -3,13 +3,14 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { App, Button, Drawer, Dropdown, Grid, Layout, Menu, Space, Tag, Tooltip, Typography } from 'antd'
 import {
   AuditOutlined, CloudServerOutlined, ClusterOutlined, CodeOutlined, IdcardOutlined, PlayCircleOutlined, RocketOutlined, ScheduleOutlined, DashboardOutlined, HistoryOutlined, KeyOutlined, LogoutOutlined, MenuOutlined,
-  MoonOutlined, SettingOutlined, SunOutlined, SyncOutlined, TeamOutlined, UserOutlined, ApartmentOutlined,
+  FileTextOutlined, MoonOutlined, SettingOutlined, SunOutlined, SyncOutlined, TeamOutlined, UserOutlined, ApartmentOutlined,
 } from '@ant-design/icons'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import { useThemeMode } from '../theme'
 import { fmtAgo } from '../format'
 import ChangePasswordModal from './ChangePasswordModal'
+import QuickSearch from './QuickSearch'
 
 const { Sider, Header, Content } = Layout
 
@@ -103,6 +104,7 @@ export default function AppLayout() {
       { key: '/scripts', icon: <CodeOutlined />, label: 'Script library' },
       { key: '/schedules', icon: <ScheduleOutlined />, label: 'Schedules' },
     ] : []),
+    { key: '/reports', icon: <FileTextOutlined />, label: 'Reports' },
     { key: '/activity', icon: <HistoryOutlined />, label: 'Activity' },
     ...(can('admin', 'operator') ? [{ type: 'divider' }, { key: '/settings', icon: <SettingOutlined />, label: 'Settings' }] : []),
     ...(can('admin')
@@ -152,6 +154,7 @@ export default function AppLayout() {
           {mobile && (
             <Button type="text" icon={<MenuOutlined />} onClick={() => setDrawerOpen(true)} aria-label="Open menu" style={{ marginRight: 'auto' }} />
           )}
+          <div style={{ marginRight: mobile ? 0 : 'auto' }}><QuickSearch compact={!screens.md} /></div>
           <SyncStatus />
           <Tooltip title={dark ? 'Light mode' : 'Dark mode'}>
             <Button type="text" icon={dark ? <SunOutlined /> : <MoonOutlined />} onClick={toggle} aria-label="Toggle theme" />

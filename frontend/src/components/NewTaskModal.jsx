@@ -4,6 +4,7 @@ import { Alert, App, Form, Input, InputNumber, Modal, Radio, Select, Typography 
 import { api } from '../api'
 import { useAuth } from '../auth'
 import { TargetPicker, TargetPreview } from './TargetPicker'
+import { findVariables, ScriptBox, VariableInputs } from './scriptFiles'
 
 export const codeStyle = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 13 }
 
@@ -26,6 +27,7 @@ export default function NewTaskModal({ open, onClose, fixedTargets, title, scrip
   const linux = Form.useWatch('linux_script', form)
   const windows = Form.useWatch('windows_script', form)
   const chosen = scripts.find((s) => s.id === scriptId)
+  const variables = source === 'library' ? (chosen?.variables || []) : findVariables(linux, windows)
 
   useEffect(() => { if (open) api.get('/api/scripts').then(setScripts).catch(() => {}) }, [open])
 
@@ -33,6 +35,7 @@ export default function NewTaskModal({ open, onClose, fixedTargets, title, scrip
     const v = await form.validateFields()
     const body = {
       name: v.name || '', targets, timeout_seconds: v.timeout_seconds || 300,
+      variables: variables.length ? v.variables : undefined,
       ...(source === 'library' ? { script_id: v.script_id } : { linux_script: v.linux_script || null, windows_script: v.windows_script || null }),
     }
     const go = async () => {
@@ -71,7 +74,7 @@ export default function NewTaskModal({ open, onClose, fixedTargets, title, scrip
             </Form.Item>
             {chosen && (
               <Typography.Paragraph type="secondary">
-                {chosen.description || 'No description.'} {chosen.linux_script ? 'Linux ✓' : 'No Linux version'} · {chosen.windows_script ? 'Windows ✓' : 'No Windows version'} · timeout {chosen.timeout_seconds}s
+                {chosen.description?.replace(/^Starter script\. /, '') || 'No description.'} {chosen.linux_script ? 'Linux ✓' : 'No Linux version'} · {chosen.windows_script ? 'Windows ✓' : 'No Windows version'} · timeout {chosen.timeout_seconds}s
               </Typography.Paragraph>
             )}
             {!admin && scripts.length === 0 && <Alert type="info" showIcon message="The library is empty. An admin can add scripts under Tasks → Scripts." />}
@@ -80,14 +83,17 @@ export default function NewTaskModal({ open, onClose, fixedTargets, title, scrip
           <>
             <Form.Item name="name" label="Name (for the history)"><Input placeholder="e.g. Check disk space" maxLength={255} /></Form.Item>
             <Form.Item name="linux_script" label="Linux (bash, runs as root)">
-              <Input.TextArea rows={6} style={codeStyle} placeholder={'df -h\nsystemctl is-active nginx'} spellCheck={false} />
+              <ScriptBox os="linux" rows={6} style={codeStyle} placeholder={'df -h\nsystemctl is-active nginx'}
+                onFileName={(n) => !form.getFieldValue('name') && form.setFieldValue('name', n)} />
             </Form.Item>
             <Form.Item name="windows_script" label="Windows (PowerShell, runs as SYSTEM)">
-              <Input.TextArea rows={6} style={codeStyle} placeholder={'Get-PSDrive -PSProvider FileSystem\nGet-Service W32Time'} spellCheck={false} />
+              <ScriptBox os="windows" rows={6} style={codeStyle} placeholder={'Get-PSDrive -PSProvider FileSystem\nGet-Service W32Time'}
+                onFileName={(n) => !form.getFieldValue('name') && form.setFieldValue('name', n)} />
             </Form.Item>
             <Form.Item name="timeout_seconds" label="Stop after"><InputNumber min={10} max={21600} addonAfter="seconds" /></Form.Item>
           </>
         )}
+        <VariableInputs names={variables} />
         <Form.Item label="Run on">
           {fixedTargets ? <Typography.Text>{title?.replace(/^Run a task on /, '') || 'The selected VM'}</Typography.Text>
             : <TargetPicker value={targets} onChange={setTargets} />}

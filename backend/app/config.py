@@ -25,9 +25,16 @@ class Settings(BaseSettings):
 
     # Worker (defaults; admins can change intervals on the Settings page)
     sync_interval_seconds: int = 30
+    # Sweep the configured subnets (ping/ARP) to find addresses used by devices that are not VMs. 0 = off.
+    ip_scan_interval_minutes: int = 15
     metrics_raw_retention_days: int = 7
     metrics_hourly_retention_days: int = 180
     history_retention_days: int = 365
+
+    # Self sign-up on the login page. New accounts always get the read-only Viewer role.
+    # Admins can change both on the Settings page; these are the starting values.
+    signup_enabled: bool = True
+    signup_requires_approval: bool = True
 
     # Browser SSH / RDP through guacd (Apache Guacamole's proxy), installed next to vCentral.
     remote_access_enabled: bool = True

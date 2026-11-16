@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { App, Button, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography } from 'antd'
+import { Alert, App, Button, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { useAuth } from '../auth'
@@ -72,6 +72,17 @@ export default function Users() {
   }, [message])
   useEffect(load, [load])
 
+  const approve = async (u) => {
+    try {
+      await api.post(`/api/users/${u.id}/approve`)
+      message.success(`${u.username} can now sign in (Viewer)`)
+      load()
+    } catch (e) {
+      message.error(e.message)
+    }
+  }
+  const pending = users.filter((u) => u.pending_approval)
+
   const remove = async (u) => {
     try {
       await api.del(`/api/users/${u.id}`)
@@ -88,18 +99,30 @@ export default function Users() {
         <Typography.Title level={3} style={{ margin: 0 }}>Users</Typography.Title>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setModal({ open: true, user: null })}>Add user</Button>
       </Space>
+      {pending.length > 0 && (
+        <Alert type="warning" showIcon style={{ marginBottom: 16 }}
+          message={`${pending.length} sign-up request${pending.length === 1 ? '' : 's'} waiting for approval`}
+          description="People who signed up on the login page. Approved accounts get the Viewer role (read-only); you can change the role afterwards with Edit. Reject deletes the request." />
+      )}
       <Table
-        rowKey="id" size="small" loading={loading} dataSource={users} pagination={false} scroll={{ x: 800 }}
+        rowKey="id" size="small" loading={loading} dataSource={[...pending, ...users.filter((u) => !u.pending_approval)]} pagination={false} scroll={{ x: 800 }}
         columns={[
           { title: 'Username', dataIndex: 'username' },
           { title: 'Name', dataIndex: 'full_name' },
           { title: 'Email', dataIndex: 'email' },
           { title: 'Role', dataIndex: 'role', render: (r) => <Tag color={r === 'admin' ? 'gold' : r === 'operator' ? 'blue' : 'default'}>{r}</Tag> },
-          { title: 'Status', dataIndex: 'is_active', render: (a, u) => (!a ? <Tag>Disabled</Tag> : u.must_change_password ? <Tag color="warning">Must set password</Tag> : <Tag color="success">Active</Tag>) },
+          { title: 'Status', dataIndex: 'is_active', render: (a, u) => (u.pending_approval ? <Tag color="orange">Waiting for approval</Tag> : !a ? <Tag>Disabled</Tag> : u.must_change_password ? <Tag color="warning">Must set password</Tag> : <Tag color="success">Active</Tag>) },
           { title: 'Last sign-in', dataIndex: 'last_login_at', render: fmtAgo },
           {
-            title: '', key: 'actions', width: 140,
-            render: (_, u) => (
+            title: '', key: 'actions', width: 200,
+            render: (_, u) => u.pending_approval ? (
+              <Space>
+                <Button size="small" type="primary" onClick={() => approve(u)}>Approve</Button>
+                <Popconfirm title={`Reject ${u.username}'s sign-up?`} description="The request is deleted." okText="Reject" okButtonProps={{ danger: true }} onConfirm={() => remove(u)}>
+                  <Button size="small" danger>Reject</Button>
+                </Popconfirm>
+              </Space>
+            ) : (
               <Space>
                 <Button size="small" onClick={() => setModal({ open: true, user: u })}>Edit</Button>
                 {u.id !== me.id && (

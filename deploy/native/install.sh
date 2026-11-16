@@ -56,6 +56,19 @@ install_packages() {
 }
 
 # Browser SSH/RDP: guacd (Apache Guacamole's proxy) from Ubuntu's packages, reachable only from this server.
+# Let the worker send ping (ICMP echo) without root, for the IP scan on the IP & subnets page. Only for the
+# vcentral group, and only if unprivileged ping is switched off entirely (the Ubuntu default on some installs).
+setup_ping() {
+  local gid current
+  gid=$(getent group vcentral | cut -d: -f3)
+  current=$(cat /proc/sys/net/ipv4/ping_group_range 2>/dev/null | tr -s '[:space:]' ' ' | sed 's/ $//')
+  [ -n "$gid" ] || return 0
+  if [ "$current" = "1 0" ] || [ -f /etc/sysctl.d/60-vcentral-ping.conf ]; then
+    echo "net.ipv4.ping_group_range = $gid $gid" > /etc/sysctl.d/60-vcentral-ping.conf
+    sysctl -q -p /etc/sysctl.d/60-vcentral-ping.conf || echo "Warning: could not enable ping for vCentral; the IP scan will use TCP probes"
+  fi
+}
+
 setup_guacd() {
   log "Setting up remote access (guacd)"
   # The SSH and RDP plugins are "recommended" packages of guacd (names differ between Ubuntu releases).
@@ -250,6 +263,7 @@ setup_database
 setup_certificate
 setup_signing_key
 setup_guacd
+setup_ping
 setup_services
 
 ip=$(hostname -I 2>/dev/null | awk '{print $1}')

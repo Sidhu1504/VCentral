@@ -3,14 +3,19 @@
 Roles: admins write ad-hoc scripts and edit the library and schedules; operators run library scripts,
 cancel and see output; viewers see task status only (output can contain sensitive data).
 """
+import csv
 import hashlib
+import io
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from .. import signing
+from ..scriptvars import VariableError, find as find_variables, render
+from ..starter_scripts import STARTER_SCRIPTS
 from ..audit import audit
 from ..db import get_db, iso, utcnow
 from ..models import Schedule, Script, Task, TaskRun, User
@@ -21,6 +26,7 @@ from ..tasks import (FINISHED, TaskError, cancel_task, create_task, create_updat
 router = APIRouter(prefix="/api", tags=["tasks"])
 
 ScriptText = Field(None, max_length=200_000)
+Variables = Field(None, max_length=50)  # {{NAME}} values
 
 
 def _need_signing() -> None:
@@ -55,6 +61,7 @@ class TaskIn(BaseModel):
     linux_script: str | None = ScriptText  # ad-hoc scripts: admins only
     windows_script: str | None = ScriptText
     timeout_seconds: int = Field(300, ge=10, le=6 * 3600)
+    variables: dict[str, str] | None = Variables
 
 
 def _resolve_content(db: Session, body: TaskIn, user: User) -> tuple[str, str | None, str | None, int, Script | None]:
@@ -124,6 +131,12 @@ def preview_task(body: TaskIn, db: Session = Depends(get_db), _: User = Depends(
 def new_task(body: TaskIn, request: Request, db: Session = Depends(get_db), user: User = Depends(require_operator)):
     _need_signing()
     name, linux, windows, timeout, script = _resolve_content(db, body, user)
+    used = find_variables(linux, windows)
+    given = {k.strip().upper(): v for k, v in (body.variables or {}).items()}
+    try:
+        linux, windows = render(linux, windows, body.variables)
+    except VariableError as exc:
+        raise HTTPException(400, str(exc))
     try:
         task = create_task(db, name=name, created_by=user.username, targets=body.targets.as_dict(),
                            linux_script=linux, windows_script=windows, timeout=timeout,
@@ -134,6 +147,7 @@ def new_task(body: TaskIn, request: Request, db: Session = Depends(get_db), user
     runs = list(db.scalars(select(TaskRun).where(TaskRun.task_id == task.id)))
     audit(db, request, user.username, "task_create", target=task.name, task_id=task.id,
           script=script.name if script else "ad-hoc", script_digest=_digest(linux, windows),
+          variables={k: given.get(k, "")[:200] for k in used} or None,
           vms=len(runs), will_run=sum(1 for r in runs if r.status == "pending"))
     db.commit()
     return task_out(task, runs, True)
@@ -154,6 +168,31 @@ def get_run(run_id: int, db: Session = Depends(get_db), _: User = Depends(requir
     if run is None:
         raise HTTPException(404, "Run not found")
     return run_out(run, with_output=True)
+
+
+def _cell(v):
+    """Spreadsheet-safe cell: output from a VM must not run as a formula when opened in Excel."""
+    return "'" + v if isinstance(v, str) and v[:1] in "=+-@\t\r" else v
+
+
+@router.get("/tasks/{task_id}/results.csv")
+def task_results_csv(task_id: int, request: Request, db: Session = Depends(get_db), user: User = Depends(require_operator)):
+    task = db.get(Task, task_id)
+    if task is None:
+        raise HTTPException(404, "Task not found")
+    runs = list(db.scalars(select(TaskRun).where(TaskRun.task_id == task.id).order_by(TaskRun.vm_name)))
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["vm", "os", "status", "exit_code", "started", "finished", "duration_seconds", "note", "output"])
+    for r in runs:
+        dur = int((r.finished_at - r.started_at).total_seconds()) if r.started_at and r.finished_at else None
+        w.writerow([_cell(x) for x in (r.vm_name, r.os_family, r.status, r.exit_code, iso(r.started_at), iso(r.finished_at),
+                                       dur, r.error, (r.output or "") + ("\n[output truncated]" if r.output_truncated else ""))])
+    audit(db, request, user.username, "task_export", target=task.name, task_id=task.id)
+    db.commit()
+    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in task.name)[:60].strip("-") or "task"
+    return StreamingResponse(iter(["\ufeff" + buf.getvalue()]), media_type="text/csv; charset=utf-8",
+                             headers={"Content-Disposition": f"attachment; filename=vcentral-task-{task.id}-{safe}.csv"})
 
 
 @router.post("/tasks/{task_id}/cancel")
@@ -237,7 +276,8 @@ class ScriptIn(BaseModel):
 def script_out(s: Script) -> dict:
     return {"id": s.id, "name": s.name, "description": s.description, "linux_script": s.linux_script,
             "windows_script": s.windows_script, "timeout_seconds": s.timeout_seconds, "created_by": s.created_by,
-            "created_at": iso(s.created_at), "updated_by": s.updated_by, "updated_at": iso(s.updated_at)}
+            "created_at": iso(s.created_at), "updated_by": s.updated_by, "updated_at": iso(s.updated_at),
+            "variables": find_variables(s.linux_script, s.windows_script)}
 
 
 @router.get("/scripts")
@@ -280,6 +320,56 @@ def update_script(script_id: int, body: ScriptIn, request: Request, db: Session 
     return script_out(s)
 
 
+class ImportIn(BaseModel):
+    scripts: list[ScriptIn] = Field(max_length=500)
+    replace: bool = False  # overwrite scripts with the same name (otherwise they are skipped)
+
+
+def _import(db: Session, items: list[ScriptIn], replace: bool, username: str) -> dict:
+    added, updated, skipped = [], [], []
+    for item in items:
+        if not (item.linux_script or "").strip() and not (item.windows_script or "").strip():
+            skipped.append(item.name)
+            continue
+        existing = db.scalar(select(Script).where(func.lower(Script.name) == item.name.strip().lower()))
+        if existing and not replace:
+            skipped.append(item.name)
+            continue
+        s = existing or Script(name=item.name.strip(), created_by=username)
+        s.description, s.timeout_seconds = item.description, item.timeout_seconds
+        s.linux_script, s.windows_script = item.linux_script or None, item.windows_script or None
+        s.updated_by, s.updated_at = username, utcnow()
+        if existing:
+            updated.append(s.name)
+        else:
+            db.add(s)
+            added.append(s.name)
+    return {"added": added, "updated": updated, "skipped": skipped}
+
+
+@router.post("/scripts/import")
+def import_scripts(body: ImportIn, request: Request, db: Session = Depends(get_db), user: User = Depends(require_admin)):
+    result = _import(db, body.scripts, body.replace, user.username)
+    audit(db, request, user.username, "script_import", added=len(result["added"]), updated=len(result["updated"]),
+          skipped=len(result["skipped"]))
+    db.commit()
+    return result
+
+
+@router.get("/scripts/starter")
+def starter_scripts(_: User = Depends(require_operator)):
+    return [{**s, "variables": find_variables(s["linux_script"], s["windows_script"])} for s in STARTER_SCRIPTS]
+
+
+@router.post("/scripts/starter")
+def add_starter_scripts(request: Request, db: Session = Depends(get_db), user: User = Depends(require_admin)):
+    """Add the ready-made scripts that are not in the library yet (scripts you edited are left alone)."""
+    result = _import(db, [ScriptIn(**s) for s in STARTER_SCRIPTS], False, user.username)
+    audit(db, request, user.username, "script_starter", added=len(result["added"]))
+    db.commit()
+    return result
+
+
 @router.delete("/scripts/{script_id}", status_code=204)
 def delete_script(script_id: int, request: Request, db: Session = Depends(get_db), user: User = Depends(require_admin)):
     s = db.get(Script, script_id)
@@ -300,11 +390,12 @@ class ScheduleIn(BaseModel):
     script_id: int
     targets: Targets
     enabled: bool = True
+    variables: dict[str, str] | None = Variables
 
 
 def schedule_out(s: Schedule, script_name: str | None) -> dict:
     return {"id": s.id, "name": s.name, "enabled": s.enabled, "cron": s.cron, "script_id": s.script_id,
-            "script_name": script_name, "targets": s.targets, "created_by": s.created_by,
+            "script_name": script_name, "targets": s.targets, "created_by": s.created_by, "variables": s.variables,
             "next_run_at": iso(s.next_run_at), "last_run_at": iso(s.last_run_at), "last_task_id": s.last_task_id}
 
 
@@ -315,8 +406,16 @@ def list_schedules(db: Session = Depends(get_db), _: User = Depends(require_oper
 
 
 def _apply_schedule(db: Session, s: Schedule, body: ScheduleIn) -> None:
-    if db.get(Script, body.script_id) is None:
+    script = db.get(Script, body.script_id)
+    if script is None:
         raise HTTPException(404, "Script not found")
+    used = find_variables(script.linux_script, script.windows_script)
+    try:
+        render(script.linux_script, script.windows_script, body.variables)  # every variable needs a value
+    except VariableError as exc:
+        raise HTTPException(400, str(exc))
+    given = {k.upper(): v for k, v in (body.variables or {}).items()}
+    s.variables = {k: given[k] for k in used} or None
     try:
         s.cron = validate_cron(body.cron)
     except TaskError as exc:
@@ -366,8 +465,12 @@ def run_schedule_now(schedule_id: int, request: Request, db: Session = Depends(g
     if s is None or script is None:
         raise HTTPException(404, "Schedule not found")
     try:
+        linux, windows = render(script.linux_script, script.windows_script, s.variables)
+    except VariableError as exc:
+        raise HTTPException(400, f"{exc} (edit the schedule)")
+    try:
         task = create_task(db, name=f"{s.name} (run now)", created_by=user.username, targets=s.targets,
-                           linux_script=script.linux_script, windows_script=script.windows_script,
+                           linux_script=linux, windows_script=windows,
                            timeout=script.timeout_seconds, script_id=script.id, schedule_id=s.id)
     except TaskError as exc:
         db.rollback()

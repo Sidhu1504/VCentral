@@ -38,6 +38,7 @@ VM_PROPS = [
     "guest.hostName",
     "guest.ipAddress",
     "guest.net",
+    "guest.ipStack",  # routes and DNS servers: tells us the gateways VMs use
     "guest.disk",
     "guest.toolsRunningStatus",
     "guest.toolsVersionStatus2",
@@ -73,7 +74,10 @@ GB = 1024 ** 3
 class Inventory:
     vms: list[dict] = field(default_factory=list)
     vcenter_version: str | None = None
-    templates_skipped: int = 0
+    templates_skipped: int = 0  # kept for the sync summary: templates are not VMs
+    templates: list[dict] = field(default_factory=list)
+    # Addresses that belong to the network, not to a VM: {"ip", "kind": gateway|dns|esxi|esxi_gateway, "label"}
+    infrastructure: list[dict] = field(default_factory=list)
 
 
 def classify_os(guest_family: str | None, guest_id: str | None, full_name: str | None) -> str:
@@ -95,6 +99,27 @@ def _usable_ip(ip: str) -> bool:
     except ValueError:
         return False
     return not (addr.is_link_local or addr.is_loopback or addr.is_unspecified)
+
+
+def _guest_gateways(raw) -> list[str]:
+    """Default gateways from VMware Tools' view of the guest's routing table."""
+    out = []
+    for stack in raw.get("guest.ipStack") or []:
+        routes = getattr(getattr(stack, "ipRouteConfig", None), "ipRoute", None) or []
+        for r in routes:
+            gw = getattr(getattr(r, "gateway", None), "ipAddress", None)
+            if r.network in ("0.0.0.0", "::") and r.prefixLength == 0 and gw and _usable_ip(gw) and gw not in out:
+                out.append(gw)
+    return out
+
+
+def _guest_dns(raw) -> list[str]:
+    out = []
+    for stack in raw.get("guest.ipStack") or []:
+        for d in getattr(getattr(stack, "dnsConfig", None), "ipAddress", None) or []:
+            if _usable_ip(d) and d not in out:
+                out.append(d)
+    return out
 
 
 def _round(v: float | None, n: int = 1) -> float | None:
@@ -245,12 +270,48 @@ class VCenterClient:
                     break
             return "/".join(reversed(parts)) or None
 
+        gateways: dict[str, int] = {}
+        dns: dict[str, int] = {}
         for raw in self._retrieve(vim.VirtualMachine, VM_PROPS):
+            item = self._normalize(raw, hosts, compute, folder_path, datastores, field_names)
             if raw.get("config.template"):
                 inv.templates_skipped += 1
+                inv.templates.append({k: item[k] for k in ("uuid", "moid", "name", "folder", "guest_os", "ip_addresses")})
                 continue
-            inv.vms.append(self._normalize(raw, hosts, compute, folder_path, datastores, field_names))
+            inv.vms.append(item)
+            for gw in _guest_gateways(raw):
+                gateways[gw] = gateways.get(gw, 0) + 1
+            for d in _guest_dns(raw):
+                dns[d] = dns.get(d, 0) + 1
+        for ip, n in gateways.items():
+            inv.infrastructure.append({"ip": ip, "kind": "gateway", "label": f"Default gateway (used by {n} VM{'s' if n != 1 else ''})"})
+        for ip, n in dns.items():
+            inv.infrastructure.append({"ip": ip, "kind": "dns", "label": f"DNS server (used by {n} VM{'s' if n != 1 else ''})"})
+        inv.infrastructure.extend(self._host_addresses())
         return inv
+
+    def _host_addresses(self) -> list[dict]:
+        """ESXi management (VMkernel) IPs, plus the gateway and DNS servers the hosts use."""
+        out = []
+        try:
+            rows = self._retrieve(vim.HostSystem, ["name", "config.network.vnic", "config.network.ipRouteConfig",
+                                                   "config.network.dnsConfig"])
+        except Exception as exc:  # noqa: BLE001 - optional detail; never fail the sync for it
+            log.warning("could not read ESXi network settings: %s", exc)
+            return out
+        for h in rows:
+            name = h.get("name") or h["_moid"]
+            for vnic in h.get("config.network.vnic") or []:
+                ip = getattr(getattr(getattr(vnic, "spec", None), "ip", None), "ipAddress", None)
+                if ip and _usable_ip(ip):
+                    out.append({"ip": ip, "kind": "esxi", "label": f"ESXi host {name} ({vnic.device})"})
+            gw = getattr(h.get("config.network.ipRouteConfig"), "defaultGateway", None)
+            if gw and _usable_ip(gw):
+                out.append({"ip": gw, "kind": "esxi_gateway", "label": f"Default gateway of ESXi host {name}"})
+            for d in getattr(h.get("config.network.dnsConfig"), "address", None) or []:
+                if _usable_ip(d):
+                    out.append({"ip": d, "kind": "dns", "label": f"DNS server of ESXi host {name}"})
+        return out
 
     @staticmethod
     def _normalize(raw, hosts, compute, folder_path, datastores, field_names) -> dict:

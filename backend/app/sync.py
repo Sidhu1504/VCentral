@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import socket
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -35,6 +36,32 @@ OWNER_RETRY_WINDOW = timedelta(minutes=30)
 
 def _history(db: Session, vm: VM, kind: str, message: str, ts, **data) -> None:
     db.add(VMHistory(vm_id=vm.id, ts=ts, kind=kind, message=message, data=data))
+
+
+def _vcenter_ips(host: str) -> list[str]:
+    try:
+        return sorted({a[4][0] for a in socket.getaddrinfo(host, None, socket.AF_INET)})
+    except OSError:
+        return []
+
+
+def _store_network_facts(db: Session, inventory, existing: dict, settings: Settings, now) -> None:
+    """Templates and network infrastructure, for the IP page (an address they hold is not free)."""
+    templates = []
+    for t in inventory.templates:
+        ips = list(t.get("ip_addresses") or [])
+        was_vm = existing.get(t["uuid"])  # a VM converted to a template keeps the IPs it had
+        for ip in (was_vm.last_known_ips if was_vm else None) or []:
+            if ip not in ips:
+                ips.append(ip)
+        templates.append({"uuid": t["uuid"], "moid": t.get("moid"), "name": t["name"], "folder": t.get("folder"),
+                          "guest_os": t.get("guest_os"), "ips": ips, "was_vm_id": was_vm.id if was_vm else None})
+    infra = list(inventory.infrastructure)
+    if settings.vcenter_host:
+        infra += [{"ip": ip, "kind": "vcenter", "label": f"vCenter Server ({settings.vcenter_host})"}
+                  for ip in _vcenter_ips(settings.vcenter_host)]
+    set_state(db, "templates", {"updated_at": iso(now), "items": templates})
+    set_state(db, "network_infra", {"updated_at": iso(now), "items": infra})
 
 
 def run_sync(db: Session, client: VCenterClient, settings: Settings) -> dict:
@@ -91,14 +118,21 @@ def run_sync(db: Session, client: VCenterClient, settings: Settings) -> dict:
                             mem_pct=vm.mem_pct, mem_mb=vm.mem_active_mb,
                             disk_used_pct_max=vm.disk_used_pct_max))
 
+    template_uuids = {t["uuid"] for t in inventory.templates}
     for uuid, vm in existing.items():
         if uuid not in seen and not vm.is_deleted:
             vm.is_deleted = True
             vm.deleted_at = now
             vm.power_state = "deleted"
             vm.updated_at = now
-            _history(db, vm, "deleted", f"{vm.name} no longer exists in vCenter", now)
+            if uuid in template_uuids:
+                _history(db, vm, "deleted", f"{vm.name} was converted to a template (it is no longer a VM)", now,
+                         template=True)
+            else:
+                _history(db, vm, "deleted", f"{vm.name} no longer exists in vCenter", now)
             stats["deleted"] += 1
+
+    _store_network_facts(db, inventory, existing, settings, now)
 
     db.flush()
     stats["owners_found"] = _resolve_owners_from_events(db, client, now)

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Alert, App, Breadcrumb, Button, Card, Collapse, Descriptions, Drawer, Popconfirm, Segmented, Skeleton, Space, Table, Tag, Typography } from 'antd'
+import { DownloadOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import { codeStyle } from '../components/NewTaskModal'
@@ -97,6 +98,9 @@ export default function TaskDetail() {
                 {failed > 0 && <Button onClick={() => act(() => api.post(`/api/tasks/${task.id}/rerun`, { only_failed: true }), 'Re-running on failed VMs')}>Re-run failed ({failed})</Button>}
                 <Button onClick={() => act(() => api.post(`/api/tasks/${task.id}/rerun`, { only_failed: false }), 'Re-running')}>Re-run all</Button>
               </>
+            )}
+            {task.kind === 'script' && (
+              <Button icon={<DownloadOutlined />} href={api.url(`/api/tasks/${task.id}/results.csv`)}>Results (CSV)</Button>
             )}
           </Space>
         )}

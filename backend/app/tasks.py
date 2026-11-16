@@ -15,6 +15,7 @@ from .agents import is_online, manifest, representative_agents
 from .config import get_settings
 from .db import iso, utcnow
 from .models import VM, Agent, Schedule, Script, Task, TaskRun
+from .scriptvars import VariableError, render
 from .signing import sign
 
 ACTIVE = ("pending", "sent", "running")
@@ -296,13 +297,14 @@ def run_due_schedules(db: Session) -> int:
         if script is None:
             continue
         try:
+            linux, windows = render(script.linux_script, script.windows_script, sch.variables)
             task = create_task(db, name=f"{sch.name} (scheduled)", created_by=f"schedule:{sch.created_by}",
-                               targets=sch.targets, linux_script=script.linux_script,
-                               windows_script=script.windows_script, timeout=script.timeout_seconds,
+                               targets=sch.targets, linux_script=linux,
+                               windows_script=windows, timeout=script.timeout_seconds,
                                script_id=script.id, schedule_id=sch.id)
             sch.last_task_id = task.id
             started += 1
-        except TaskError:
-            pass  # e.g. no VM matches right now; try again next time
+        except (TaskError, VariableError):
+            pass  # e.g. no VM matches right now, or the script gained a variable the schedule has no value for
     db.commit()
     return started

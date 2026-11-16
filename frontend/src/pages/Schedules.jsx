@@ -5,6 +5,7 @@ import { PlusOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import { describeTargets, TargetPicker } from '../components/TargetPicker'
+import { VariableInputs } from '../components/scriptFiles'
 import { fmtAgo, fmtDate } from '../format'
 
 const PRESETS = [
@@ -23,6 +24,8 @@ function ScheduleEditor({ schedule, scripts, onClose, onSaved }) {
   const [form] = Form.useForm()
   const { message } = App.useApp()
   const [targets, setTargets] = useState(toTargetsState(schedule?.targets))
+  const scriptId = Form.useWatch('script_id', form)
+  const variables = scripts.find((s) => s.id === scriptId)?.variables || []
   const save = async () => {
     const v = await form.validateFields()
     try {
@@ -43,6 +46,7 @@ function ScheduleEditor({ schedule, scripts, onClose, onSaved }) {
         <Form.Item name="script_id" label="Script" rules={[{ required: true }]}>
           <Select showSearch optionFilterProp="label" options={scripts.map((s) => ({ value: s.id, label: s.name }))} placeholder="Choose a library script" />
         </Form.Item>
+        <VariableInputs names={variables} />
         <Form.Item label="When" required>
           <Space.Compact style={{ width: '100%' }}>
             <Select style={{ width: '55%' }} placeholder="Presets" options={PRESETS} onChange={(v) => form.setFieldsValue({ cron: v })} />
@@ -77,7 +81,7 @@ export default function Schedules() {
     }
   }
   const toggle = (s, enabled) => act(() => api.put(`/api/schedules/${s.id}`, { name: s.name, cron: s.cron, script_id: s.script_id,
-    targets: toTargetsState(s.targets), enabled }), enabled ? 'Schedule enabled' : 'Schedule paused')
+    targets: toTargetsState(s.targets), variables: s.variables || undefined, enabled }), enabled ? 'Schedule enabled' : 'Schedule paused')
 
   return (
     <>

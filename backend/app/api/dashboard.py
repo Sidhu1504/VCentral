@@ -12,7 +12,7 @@ from ..health import SEVERITY_RANK
 from ..models import VM, Agent, User, VMHistory
 from ..security import require_viewer
 from ..state import get_state
-from .network import subnet_usage
+from .network import classify, network_facts
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -100,7 +100,7 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(require_viewer)):
         "vm_changes_7d": vm_changes(db, now - timedelta(days=7)),
         "recent_activity": [{"id": h.id, "ts": iso(h.ts), "kind": h.kind, "message": h.message,
                              "vm_id": h.vm_id, "vm_name": names.get(h.vm_id)} for h in recent],
-        "subnets": [{k: s[k] for k in ("cidr", "usable", "used", "free", "conflicts", "used_pct")}
-                    for s in subnet_usage(vms, get_settings().subnet_list)],
+        "subnets": [{k: s[k] for k in ("cidr", "usable", "used", "taken", "free", "conflicts", "used_pct")}
+                    for s in classify(network_facts(db), get_settings().subnet_list)[0]],
         "sync": get_state(db, "sync"),
     }

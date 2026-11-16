@@ -12,7 +12,8 @@ vCentral reads VM data from vCenter, which needs no credentials inside the VMs. 
 | **Virtual machines** | Every VM with power state, agent status, OS, IP (or last known IP), owner, CPU / memory / fullest-disk usage, host and folder. Search, filters, sorting, CSV export |
 | **VM detail** | Usage graphs (1 hour to 90 days, from the agent or vCenter), network and disk I/O, disks, top processes, installed software, services, listening ports, IPs and MACs, owner and notes, full change history |
 | **Agents** | Every agent with online/offline state and the VM it belongs to; enrollment tokens with ready-to-paste install commands; agent downloads |
-| **IP & subnets** | Map of every address in your subnets: in use, free, conflicts, and IPs last held by powered-off VMs |
+| **IP & subnets** | Map of every address in your subnets and what holds it: VMs, gateways, DNS, ESXi, vCenter, templates, reservations, powered-off VMs and other devices found by a network scan. Conflicts, and the next free addresses |
+| **Reports** | Inventory, owners, problems, agent coverage, new/deleted VMs, resource usage (idle / overloaded VMs), powered-off VMs, IP usage, task history: view, filter, download as CSV, or print / save as PDF |
 | **Activity** | VMs created, deleted, powered on/off, renamed, resized, or changing IP |
 | **Settings** | Agent metrics interval (10 s – 1 min), inventory interval (15 min – 6 h), vCenter sync interval (20 s – 5 min); applied without a restart |
 | **Onboarding** | Powered-on VMs without the agent, install through VMware Tools or a one-time command, digest to the admin team, messages sent |
@@ -76,6 +77,50 @@ The **Onboarding** page lists every powered-on VM without an agent, its owner (s
 
 **vCenter privileges for VMware Tools installs.** Give the vCentral service account a role with Read-only plus *Virtual machine → Guest operations → Guest operation modifications, Guest operation program execution, Guest operation queries*, on the VMs (or the vCenter root, propagated). The vCentral server must reach the **ESXi hosts on TCP 443** (files are copied through the host). If the hosts' certificates are not trusted by the vCentral server, set `VCENTRAL_VCENTER_VERIFY_SSL=false`.
 
+## IP addresses: when is an address free?
+
+The **IP & subnets** page shows an address as free only when nothing claims it:
+
+| Taken by | How vCentral knows |
+|---|---|
+| **VM** | VMware Tools reports the IP, or the network scan sees the VM's MAC address on it (VMs without Tools) |
+| **Infrastructure** | From vCenter: the default gateways and DNS servers your VMs use (their own routing tables), each ESXi host's management IP, gateway and DNS servers, and the vCenter Server's IP |
+| **Template** | IPs a template has, and the IPs a VM had before it was converted to a template |
+| **Reserved** | Set on this page (one address or a range, e.g. a DHCP pool or a printer). Admins and operators |
+| **Powered-off VM** | The last IP of a VM that is off: it takes the address back when it starts |
+| **Other device** | It answered the network scan but is not a VM (printers, firewalls, laptops...). Its MAC address is shown |
+
+**The network scan:**
+- **What it does:** every 15 minutes (Settings → *Network scan*, or Off), the vCentral server pings every address in `VCENTRAL_SUBNETS` and reads its own ARP table. ARP also catches devices on the same subnet that block ping.
+- **Ping:** the installer allows ping for the `vcentral` group only (`/etc/sysctl.d/60-vcentral-ping.conf`), because unprivileged ping is often switched off on Ubuntu. Without it, the scan uses TCP connection attempts to common ports instead.
+- **Memory:** devices that stop answering are kept for 7 days and shown with when they were last seen.
+- **Warnings:** conflicts and suspicious overlaps are highlighted, for example something answering on a powered-off VM's IP, or a VM using a reserved or template address.
+- **Network security tools** may notice the scan. Tell your network or security team, or switch it off.
+
+## Reports
+
+**Reports** in the menu: open one to see it in vCentral, filter and sort it, then **Download CSV** (opens in Excel) or **Print / PDF**. Reports are built from live data each time, and some can cover the last 7, 30 or 90 days. Everyone, including viewers, can open reports, and every CSV download is in the audit log.
+
+| Report | Shows |
+|---|---|
+| VM inventory | Every VM: power, health, OS, IP, owner, size, host, folder, agent |
+| VMs by owner | VMs, vCPU, RAM and storage per owner, and VMs without a known owner |
+| Current problems | VMs with a health problem now |
+| Agent coverage | Which VMs have an agent, its state and version |
+| New and deleted VMs | Created, deleted, converted to template or back, with owner |
+| Resource usage | Average and peak CPU, memory and disk per VM, flagging **idle** (shrink or switch off) and **busy** VMs |
+| Powered-off VMs | Since when they are off, and the storage and IPs they still hold |
+| IP address usage | Every taken address and what holds it |
+| Task history | Tasks in the period and how many VMs succeeded or failed |
+
+## Sign-up
+
+The login page has **Create an account**. Accounts created there always get the **Viewer** role (read-only); only an admin can give a different role (Users → Edit). On **Settings → Sign-up**, admins choose:
+- **Allow sign-up** (on by default).
+- **New accounts need admin approval** (on by default; recommended). Requests appear at the top of **Users** with Approve / Reject, and the admin team is told by Google Chat or email when those are set up. Until approved, the person cannot sign in.
+
+Viewers can see every VM's IPs and owners and agent inventories (software, services, open ports); they see task names and status but not scripts or output. Keep approval on unless everyone who can reach vCentral should see that. Sign-ups are limited to 5 per IP address per hour and are recorded in the audit log.
+
 ## Remote access: SSH and RDP in the browser
 
 On a VM's page, admins and operators click **Connect (SSH / RDP)**, pick the VM's address, type the login **on the VM**, and work in a full-window session in the browser, with no client software. It includes Ctrl+Alt+Del and Win keys for Windows, clipboard exchange, and full-screen mode, and it resizes with the window.
@@ -99,6 +144,19 @@ On a VM's page, admins and operators click **Connect (SSH / RDP)**, pick the VM'
 | **Script library** | Saved scripts (Linux and/or Windows version, timeout). Run one from here or from a VM's page |
 | **Schedules** | Run a library script on a cron schedule (in UTC) on VMs chosen by a filter, re-evaluated at every run |
 | **Agents → Update outdated agents** | Agents download the new version from vCentral, check its SHA-256, replace themselves and restart |
+
+**Working with scripts:**
+- **Upload from your computer.** Every script box has *upload a file* and accepts drag-and-drop; **Script library → Upload script** creates a script from a file.
+  - Linux accepts `.sh`, `.py` and `.txt`. Windows line endings are converted, since they break bash, and Python files are wrapped to run with `python3`.
+  - Windows accepts `.ps1`, `.bat`, `.cmd` and `.txt`. Batch files are wrapped to run with `cmd.exe`, and UTF-16 files saved by Windows are decoded.
+- **Variables.** Write `{{NAME}}` in a script, with no quotes around it, e.g. `systemctl restart -- {{SERVICE}}`. When the script is run, vCentral asks for the value; a schedule stores its values.
+  - Each value is inserted as one quoted literal for bash or PowerShell, so a value can never add commands.
+  - Variables are for bash and PowerShell scripts, not for wrapped Python or batch files.
+- **Starter scripts** (Script library, admins): disk usage, top processes, pending reboot/updates, who is logged in, listening ports, time sync, failed services, service status, restart a service, and the last lines of a log file. Each has a Linux and a Windows version, and all only read information except *Restart a service*.
+- **Export / Import** the whole library as a JSON file, for backup or to copy it to another vCentral server. Scripts with the same name are skipped or replaced, as you choose. Each script can also be downloaded as `.sh` / `.ps1`.
+- **Results (CSV)** on a task page downloads VM, status, exit code, timing and output for every VM.
+
+**Quick search:** press **Ctrl+K** (⌘K on Mac) on any page and type a VM name, IP, hostname, owner or folder to jump to it.
 
 **Who can do what:** admins write ad-hoc scripts and manage the library and schedules; operators run library scripts, cancel and read output; viewers see task status but not output (it can contain sensitive data). Every task, script change and schedule is in the audit log.
 
@@ -257,9 +315,11 @@ All settings are environment variables in `.env`. See [.env.example](.env.exampl
 |---|---|---|
 | `VCENTRAL_VCENTER_HOST` / `_USER` / `_PASSWORD` | – | vCenter connection |
 | `VCENTRAL_VCENTER_VERIFY_SSL` | `true` | Set `false` only for a self-signed vCenter certificate |
-| `VCENTRAL_SUBNETS` | – | CIDRs shown on the IP page, comma-separated |
+| `VCENTRAL_SUBNETS` | – | CIDRs shown on the IP page and scanned, comma-separated |
+| `VCENTRAL_IP_SCAN_INTERVAL_MINUTES` | `15` | Starting value for the network scan (Settings page; 0 = off) |
 | `VCENTRAL_OWNER_ATTRIBUTE` | `Owner` | vCenter custom attribute that holds the owner |
 | `VCENTRAL_OWNER_IGNORE_USERS` | `administrator@vsphere.local` | Shared accounts never suggested as owners, comma-separated |
+| `VCENTRAL_SIGNUP_ENABLED` / `_REQUIRES_APPROVAL` | `true` / `true` | Starting values for sign-up (Settings page) |
 | `VCENTRAL_REMOTE_ACCESS_ENABLED` | `true` | Browser SSH/RDP (through guacd) |
 | `VCENTRAL_GUACD_HOST` / `_PORT` | `127.0.0.1` / `4822` | Where guacd listens |
 | `VCENTRAL_SYNC_INTERVAL_SECONDS` | `30` | Starting vCenter sync interval (change later on the Settings page) |

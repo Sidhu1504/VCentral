@@ -9,6 +9,7 @@ from ..db import get_db, iso, utcnow
 from ..models import NotificationLog, User
 from ..notify import chat_configured, email_configured, send_chat, send_email
 from ..onboarding import get_policy, save_policy
+from ..signup import get_signup_policy, save_signup_policy
 from ..runtime import CHOICES, defaults, offline_after_seconds, runtime, save_runtime
 from ..security import require_admin, require_operator, require_viewer
 from ..state import get_state, set_state
@@ -40,7 +41,7 @@ def _settings_out(db: Session) -> dict:
     s = get_settings()
     return {"values": runtime(), "defaults": defaults(), "choices": CHOICES,
             "agent_offline_after_seconds": offline_after_seconds(),
-            "onboarding": get_policy(db),
+            "onboarding": get_policy(db), "signup": get_signup_policy(db),
             "notifications": {"email": email_configured(), "smtp_host": s.smtp_host or None, "smtp_from": s.smtp_from or None,
                               "chat": chat_configured(), "admin_emails": s.admin_email_list,
                               "public_url": s.public_url or None}}
@@ -58,25 +59,36 @@ class PolicyIn(BaseModel):
     overdue_after_days: int | None = None
 
 
+class SignupPolicyIn(BaseModel):
+    enabled: bool | None = None
+    requires_approval: bool | None = None
+
+
 class SettingsIn(BaseModel):
     sync_interval_seconds: int | None = None
     agent_report_interval_seconds: int | None = None
     agent_inventory_interval_seconds: int | None = None
+    ip_scan_interval_minutes: int | None = None
     onboarding: PolicyIn | None = None
+    signup: SignupPolicyIn | None = None
 
 
 @router.put("/settings")
 def put_runtime_settings(body: SettingsIn, request: Request, db: Session = Depends(get_db),
                          user: User = Depends(require_admin)):
-    changes = body.model_dump(exclude_none=True, exclude={"onboarding"})
+    changes = body.model_dump(exclude_none=True, exclude={"onboarding", "signup"})
+    signup = body.signup.model_dump(exclude_none=True) if body.signup else {}
     policy = body.onboarding.model_dump(exclude_none=True) if body.onboarding else {}
     try:
         save_runtime(db, changes)
         if policy:
             save_policy(db, policy)
+        if signup:
+            save_signup_policy(db, signup)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    audit(db, request, user.username, "update_settings", **changes, **{f"onboarding.{k}": v for k, v in policy.items()})
+    audit(db, request, user.username, "update_settings", **changes, **{f"onboarding.{k}": v for k, v in policy.items()},
+          **{f"signup.{k}": v for k, v in signup.items()})
     db.commit()
     return _settings_out(db)
 

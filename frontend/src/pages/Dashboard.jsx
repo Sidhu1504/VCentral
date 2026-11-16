@@ -200,7 +200,7 @@ export default function Dashboard() {
               <div key={s.cidr} style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <Typography.Text strong>{s.cidr}</Typography.Text>
-                  <Typography.Text type="secondary">{s.used} used · {s.free} free</Typography.Text>
+                  <Typography.Text type="secondary">{s.taken ?? s.used} taken · {s.free} free</Typography.Text>
                 </div>
                 <Progress percent={s.used_pct} strokeColor={usageColor(s.used_pct)} format={(p) => `${Math.round(p)}%`} />
                 {s.conflicts > 0 && <Tag color="error">{s.conflicts} IP conflict(s)</Tag>}

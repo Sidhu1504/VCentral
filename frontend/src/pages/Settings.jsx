@@ -20,6 +20,12 @@ const FIELDS = [
     label: 'vCenter sync interval',
     help: 'How often vCentral reads all VMs from vCenter: power state, IP addresses (also for VMs without an agent), creates and deletes. This is what detects a VM that lost its IP, because VMware Tools still reports when the network is down.',
   },
+  {
+    key: 'ip_scan_interval_minutes',
+    label: 'Network scan (IP & subnets page)',
+    help: 'How often the vCentral server checks every address in your subnets (ping, plus its ARP table) to find addresses used by things that are not VMs: gateways, printers, firewalls, laptops. Off means the IP page only uses what vCenter knows.',
+    format: (m) => (m === 0 ? 'Off' : m >= 60 ? '1 h' : `${m} min`),
+  },
 ]
 
 export default function Settings() {
@@ -59,7 +65,7 @@ export default function Settings() {
           {FIELDS.map((f) => (
             <Form.Item key={f.key} name={f.key} label={<b>{f.label}</b>} extra={f.help}>
               <Radio.Group optionType="button" buttonStyle="solid"
-                options={data.choices[f.key].map((v) => ({ value: v, label: INTERVAL_LABEL(v) + (v === data.defaults[f.key] ? ' (default)' : '') }))} />
+                options={data.choices[f.key].map((v) => ({ value: v, label: (f.format || INTERVAL_LABEL)(v) + (v === data.defaults[f.key] ? ' (default)' : '') }))} />
             </Form.Item>
           ))}
           <Typography.Paragraph type="secondary">
@@ -69,8 +75,51 @@ export default function Settings() {
           {editable && <Button type="primary" htmlType="submit" loading={saving}>Save</Button>}
         </Form>
       </Card>
+      <SignupSettings data={data} setData={setData} editable={editable} />
       <OnboardingSettings data={data} setData={setData} editable={editable} />
     </>
+  )
+}
+
+function SignupSettings({ data, setData, editable }) {
+  const { message } = App.useApp()
+  const [saving, setSaving] = useState(null)
+  const s = data.signup
+  const change = async (key, value) => {
+    setSaving(key)
+    try {
+      setData(await api.put('/api/system/settings', { signup: { [key]: value } }))
+      message.success('Saved')
+    } catch (e) {
+      message.error(e.message)
+    } finally {
+      setSaving(null)
+    }
+  }
+  return (
+    <Card size="small" title="Sign-up" style={{ maxWidth: 820, marginTop: 16 }}>
+      <Space direction="vertical" size={14} style={{ width: '100%' }}>
+        <Space align="start">
+          <Switch checked={s.enabled} loading={saving === 'enabled'} disabled={!editable} onChange={(v) => change('enabled', v)} />
+          <div>
+            <b>Allow sign-up on the login page</b>
+            <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
+              Anyone who can open vCentral can create an account. New accounts always get the <b>Viewer</b> role (read-only); only an admin can give more.
+            </Typography.Paragraph>
+          </div>
+        </Space>
+        <Space align="start">
+          <Switch checked={s.requires_approval} loading={saving === 'requires_approval'} disabled={!editable || !s.enabled} onChange={(v) => change('requires_approval', v)} />
+          <div>
+            <b>New accounts need admin approval</b>
+            <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
+              Recommended. Requests wait on the Users page, and the admin team is told by Google Chat or email if those are set up.
+              Viewers can see every VM's IPs and owners, and agents' software, services and open ports (not task scripts or output).
+            </Typography.Paragraph>
+          </div>
+        </Space>
+      </Space>
+    </Card>
   )
 }
 

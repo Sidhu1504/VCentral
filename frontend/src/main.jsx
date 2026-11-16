@@ -22,6 +22,7 @@ import TaskDetail from './pages/TaskDetail'
 import Scripts from './pages/Scripts'
 import Schedules from './pages/Schedules'
 import Owners from './pages/Owners'
+import Reports from './pages/Reports'
 
 function Root() {
   const { user, can } = useAuth()
@@ -38,6 +39,7 @@ function Root() {
         <Route path="agents" element={<Agents />} />
         <Route path="onboarding" element={<Onboarding />} />
         <Route path="owners" element={<Owners />} />
+        <Route path="reports" element={<Reports />} />
         <Route path="tasks" element={<Tasks />} />
         <Route path="tasks/:id" element={<TaskDetail />} />
         {can('admin', 'operator') && <Route path="scripts" element={<Scripts />} />}

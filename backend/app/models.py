@@ -20,6 +20,7 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
     token_version: Mapped[int] = mapped_column(Integer, default=0)  # bump to end all sessions
+    pending_approval: Mapped[bool] = mapped_column(Boolean, default=False)  # signed up, waiting for an admin
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime)
 
@@ -312,6 +313,7 @@ class Schedule(Base):
     cron: Mapped[str] = mapped_column(String(64))  # 5-field cron, in UTC
     script_id: Mapped[int] = mapped_column(ForeignKey("scripts.id", ondelete="CASCADE"))
     targets: Mapped[dict] = mapped_column(JSON, default=dict)
+    variables: Mapped[dict | None] = mapped_column(JSON)  # values for {{NAME}} in the script
     created_by: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime)
@@ -344,6 +346,20 @@ class AuditLog(Base):
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
     source_ip: Mapped[str | None] = mapped_column(String(45))
     success: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class IPReservation(Base):
+    """An address or range kept free on purpose, or used by something vCentral cannot see (printer, firewall...)."""
+
+    __tablename__ = "ip_reservations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    start_ip: Mapped[str] = mapped_column(String(45), index=True)
+    end_ip: Mapped[str | None] = mapped_column(String(45))  # None = a single address
+    label: Mapped[str] = mapped_column(String(128))
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class SystemState(Base):

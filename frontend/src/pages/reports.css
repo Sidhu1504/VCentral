@@ -1,0 +1,19 @@
+.report-card { height: 100%; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.report-card:hover { transform: translateY(-2px); }
+.report-icon {
+  width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; flex: none;
+  font-size: 18px; color: #fff; background: linear-gradient(140deg, #3b82f6, #1d4ed8);
+}
+.report-stat .ant-statistic-content { font-size: 22px; }
+
+/* Print / Save as PDF: only the report itself, all rows, on white. */
+@media print {
+  .ant-layout-sider, .ant-layout-header, .ant-drawer, .no-print, .ant-table-column-sorters .ant-table-column-sorter { display: none !important; }
+  .ant-layout, .ant-layout-content, body { background: #fff !important; padding: 0 !important; }
+  .report-view, .report-view * { color: #000 !important; }
+  .report-view .ant-card { background: #fff !important; border-color: #ccc !important; box-shadow: none !important; }
+  .report-view .ant-table, .report-view .ant-table-thead > tr > th, .report-view .ant-table-tbody > tr > td { background: #fff !important; border-color: #ddd !important; }
+  .report-view .ant-table-wrapper { overflow: visible !important; }
+  .report-view a { text-decoration: none; }
+  @page { size: landscape; margin: 12mm; }
+}

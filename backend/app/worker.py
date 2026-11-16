@@ -14,6 +14,7 @@ from .config import get_settings
 from .db import SessionLocal, init_db, iso, utcnow
 from .owners import suggest_owners
 from .health import evaluate_health
+from .netscan import run_scan
 from .onboarding import run_digest, update_unmanaged
 from .tasks import expire_runs, run_due_schedules
 from .runtime import runtime
@@ -122,6 +123,22 @@ def tasks_job() -> None:
         log.exception("Task housekeeping failed")
 
 
+def ip_scan_job() -> None:
+    """Every minute: sweep the subnets when the interval set on the Settings page has passed."""
+    minutes = runtime()["ip_scan_interval_minutes"]
+    nets = get_settings().subnet_list
+    if not minutes or not nets:
+        return
+    with SessionLocal() as db:
+        last = get_state(db, "ip_scan").get("finished_at")
+        if last and utcnow() - datetime.fromisoformat(last.rstrip("Z")) < timedelta(minutes=minutes) - timedelta(seconds=30):
+            return
+        try:
+            run_scan(db, nets)
+        except Exception:  # noqa: BLE001
+            log.exception("IP scan failed")
+
+
 def rollup_job() -> None:
     with SessionLocal() as db:
         hours = rollup_hourly(db)
@@ -147,6 +164,7 @@ def main() -> None:
     scheduler.add_job(owners_job, "interval", hours=1, id="owners",
                       next_run_time=datetime.now().astimezone() + timedelta(seconds=90))
     scheduler.add_job(rollup_job, "cron", minute=5, id="rollup")
+    scheduler.add_job(ip_scan_job, "cron", second=40, id="ip_scan", max_instances=1, coalesce=True)
     scheduler.add_job(prune_job, "cron", hour=3, minute=30, id="prune")
     log.info("Worker started; vCenter sync every %ss (changeable on the Settings page)", runtime()["sync_interval_seconds"])
     try:
