@@ -28,6 +28,29 @@ export function buildCommands(token, fingerprint, serverUrl, template = false) {
   return { linux, windows, manual }
 }
 
+/**
+ * Commands that replace an installed agent (any version, including ones too old to update themselves) with the
+ * version on this vCentral. No token: the agent keeps its identity, settings and history.
+ */
+export function buildUpgradeCommands(fingerprint, serverUrl) {
+  const server = (serverUrl || window.location.origin).replace(/\/$/, '')
+  const u = new URL(server)
+  const hostPort = u.port ? u.host : `${u.host}:443`
+  const linux = fingerprint
+    ? `echo | openssl s_client -connect ${hostPort} -servername ${u.hostname} 2>/dev/null | openssl x509 > /tmp/vcentral.pem && ` +
+      `[ "$(openssl x509 -in /tmp/vcentral.pem -outform DER | openssl dgst -sha256 | sed 's/.*= //')" = "${fingerprint}" ] && ` +
+      `curl -fsSL --cacert /tmp/vcentral.pem ${server}/api/agent/install.sh | sudo sh -s -- --server ${server} --upgrade --cacert /tmp/vcentral.pem ` +
+      `|| echo "vCentral agent was not updated (see the message above; no message = certificate check failed)"`
+    : `curl -fsSL ${server}/api/agent/install.sh | sudo sh -s -- --server ${server} --upgrade`
+  const pin = fingerprint
+    ? `$fp='${fingerprint}'; [Net.ServicePointManager]::ServerCertificateValidationCallback = { param($s, $c) (-join ([Security.Cryptography.SHA256]::Create().ComputeHash($c.GetRawCertData()) | ForEach-Object { $_.ToString('x2') })) -eq $fp }; `
+    : ''
+  const windows =
+    `[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; ${pin}` +
+    `iex ((New-Object Net.WebClient).DownloadString('${server}/api/agent/install.ps1')); Update-VCentralAgent -Server '${server}'`
+  return { linux, windows }
+}
+
 const codeStyle = { display: 'block', whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: 12, fontSize: 12 }
 
 export default function InstallCommands({ token, fingerprint, server, template = false }) {

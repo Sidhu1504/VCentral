@@ -163,7 +163,10 @@ On a VM's page, admins and operators click **Connect (SSH / RDP)**, pick the VM'
 **How agents decide to run something.** Each task is signed with an Ed25519 key kept in `/etc/vcentral/task-signing.key` (outside the database). An agent runs a task only if the signature matches the key it learned when it enrolled, the task names that agent, it has not expired, and it has not run before (agents remember the runs they executed). Someone who can only change the database cannot make agents run commands.
 
 - **Keep the key with your backups.** If it is lost or replaced, agents refuse all tasks until they are reinstalled.
-- Agents installed before version 0.4.0 cannot run tasks or update themselves: reinstall them once (**Install agent** on the Onboarding or VM page). From then on, updates go through vCentral.
+- **Updating by hand:** agents installed before 0.4.0 cannot update themselves, and an automatic update can fail on a VM. For those, use **Agents → Update** on the agent's row. It shows a one-line command to run once on the VM (Linux with sudo, or Windows PowerShell as Administrator).
+  - **No token needed:** the agent keeps its identity, settings and history.
+  - **Safe:** the service is refreshed so later updates are automatic, and if the new version does not start, the previous version is put back and restarted.
+  - **Offline:** for VMs that cannot reach vCentral, copy the file from **Agents → Downloads** and run `vcentral-agent-<platform> upgrade` as root / Administrator.
 
 ## The vCentral agent
 

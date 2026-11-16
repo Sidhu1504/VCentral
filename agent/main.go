@@ -25,6 +25,9 @@ Usage:
         --disable-tasks: report only; never run scripts or updates sent by vCentral.
         --template: for a VM template (needs a reusable token). The template stays idle; every VM deployed
                     from it enrolls itself on first boot.
+  vcentral-agent upgrade
+        Replace an installed agent with this version and restart it. Keeps its identity and settings
+        (no token needed). Run as root / Administrator. Works for every older version.
   vcentral-agent uninstall
         Stop and remove the service, its configuration and (on Linux) the binary.
   vcentral-agent status
@@ -50,6 +53,8 @@ func main() {
 	switch cmd {
 	case "install":
 		err = cmdInstall(args)
+	case "upgrade":
+		err = cmdUpgrade()
 	case "uninstall":
 		err = cmdUninstall()
 	case "status":
@@ -177,6 +182,54 @@ func cmdInstall(args []string) error {
 		return nil
 	}
 	fmt.Printf("vCentral agent %s installed and running.\n  Agent ID: %s\n  Server:   %s\n", Version, cfg.AgentID, cfg.Server)
+	return nil
+}
+
+// cmdUpgrade puts this binary in place of the installed agent and restarts the service. The config (agent ID,
+// secret, server, pinned certificate) is kept, so it stays the same agent in vCentral. Also rewrites the service
+// definition, so agents installed before self-update existed get the restart-on-exit behaviour it relies on.
+func cmdUpgrade() error {
+	if !isAdmin() {
+		return errors.New("upgrade must run as root (Linux) or from an elevated prompt (Windows)")
+	}
+	if err := requireServiceManager(); err != nil {
+		return err
+	}
+	cfgPath := defaultConfigPath()
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		return fmt.Errorf("no installed vCentral agent found (%v); use the install command with an enrollment token instead", err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	dest := installBinPath()
+	backup := dest + ".previous"
+	stopService()
+	if !samePath(self, dest) {
+		haveBackup := copyFile(dest, backup) == nil
+		if err := copyFile(self, dest); err != nil {
+			_ = installService() // bring the old version back up
+			return fmt.Errorf("copy binary to %s: %w", dest, err)
+		}
+		defer os.Remove(backup)
+		if err := installService(); err != nil {
+			// Put the old version back so the VM is not left without a running agent.
+			if haveBackup && copyFile(backup, dest) == nil {
+				_ = installService()
+				return fmt.Errorf("could not restart the service with the new version (%v); the previous version was restored", err)
+			}
+			return fmt.Errorf("restart service: %w", err)
+		}
+	} else if err := installService(); err != nil {
+		return fmt.Errorf("restart service: %w", err)
+	}
+	who := cfg.AgentID
+	if who == "" {
+		who = "not enrolled yet (template mode)"
+	}
+	fmt.Printf("vCentral agent upgraded to %s and restarted.\n  Agent ID: %s (unchanged)\n  Server:   %s\n", Version, who, cfg.Server)
 	return nil
 }
 

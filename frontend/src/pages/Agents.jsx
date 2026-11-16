@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  Alert, App, Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Radio, Segmented, Select, Space, Table, Tabs,
+  Alert, App, Button, Card, Collapse, Form, Input, InputNumber, Modal, Popconfirm, Radio, Segmented, Select, Space, Table, Tabs,
   Tag, Tooltip, Typography,
 } from 'antd'
 import { DownloadOutlined, LinkOutlined, PlusOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { useAuth } from '../auth'
-import InstallCommands from '../components/InstallCommands'
+import InstallCommands, { buildUpgradeCommands } from '../components/InstallCommands'
 import { AGENT_STATE, fmtAgo, fmtDate } from '../format'
 import { OsIcon } from './VMs'
 
@@ -55,7 +55,77 @@ export function LinkVmModal({ agent, onClose, onSaved }) {
   )
 }
 
-function AgentsTab() {
+function UpdateAgentModal({ agent, info, onClose }) {
+  const { message } = App.useApp()
+  const navigate = useNavigate()
+  const { can } = useAuth()
+  const [busy, setBusy] = useState(false)
+  const cmd = buildUpgradeCommands(info?.fingerprint)
+  const windows = agent.os_family === 'windows'
+  const arch = { x86_64: 'amd64', amd64: 'amd64', aarch64: 'arm64', arm64: 'arm64', i386: '386', i686: '386', '386': '386' }[(agent.arch || '').toLowerCase()] || 'amd64'
+  const platform = agent.platform || `${windows ? 'windows' : 'linux'}-${arch}`
+  const fileName = info?.files?.[platform]?.file || `vcentral-agent-${platform}${windows ? '.exe' : ''}`
+  const auto = async () => {
+    setBusy(true)
+    try {
+      const t = await api.post('/api/agents/update', { agent_ids: [agent.id] })
+      onClose()
+      navigate(`/tasks/${t.id}`)
+    } catch (e) {
+      message.error(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const block = (text) => (
+    <Typography.Paragraph copyable={{ text }} style={{ marginBottom: 8 }}>
+      <code style={{ display: 'block', whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: 12, fontSize: 12 }}>{text}</code>
+    </Typography.Paragraph>
+  )
+  return (
+    <Modal open width={760} title={`Update the agent on ${agent.hostname}`} onCancel={onClose} footer={null}>
+      <Typography.Paragraph>
+        From <b>{agent.agent_version || 'unknown'}</b> to <b>{info?.version || 'the latest version'}</b>. The agent keeps its
+        identity, settings and history; nothing needs to be re-enrolled.
+      </Typography.Paragraph>
+      {agent.can_self_update ? (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
+            <div>
+              <Typography.Text strong>1. Automatically (recommended)</Typography.Text>
+              <Typography.Paragraph type="secondary" style={{ margin: 0 }}>The agent downloads the new version from vCentral with its next report, checks it and restarts.</Typography.Paragraph>
+            </div>
+            {can('admin') && <Button type="primary" loading={busy} onClick={auto}>Update now</Button>}
+          </Space>
+        </Card>
+      ) : (
+        <Alert type="info" showIcon style={{ marginBottom: 16 }}
+          message={`Version ${agent.agent_version || 'unknown'} cannot update itself`}
+          description="Run the command below on the VM once. After that, updates are automatic (Update outdated agents)." />
+      )}
+      <Typography.Text strong>{agent.can_self_update ? '2. By command, on the VM' : 'Run on the VM'}</Typography.Text>
+      <Typography.Paragraph type="secondary">
+        {windows ? 'Paste into PowerShell opened with Run as administrator.' : 'Run as a user with sudo (needs curl and openssl).'}{' '}
+        No token or password for vCentral is needed. If you can't log in to the VM, use <i>Install agent</i> on its VM page (VMware Tools) instead.
+      </Typography.Paragraph>
+      {block(windows ? cmd.windows : cmd.linux)}
+      <Collapse ghost size="small" items={[{
+        key: 'offline', label: 'No network access from the VM to vCentral? Update offline',
+        children: (
+          <>
+            <Typography.Paragraph type="secondary">
+              Download <b>{fileName}</b> from the <b>Downloads</b> tab{windows && !agent.platform ? ' (Windows Server 2012 R2 and older: the windows-legacy file)' : ''},
+              copy it to the VM, then run it with <code>upgrade</code> as {windows ? 'Administrator' : 'root'}:
+            </Typography.Paragraph>
+            {block(windows ? `.\\${fileName} upgrade` : `sudo sh -c "chmod +x ./${fileName} && ./${fileName} upgrade"`)}
+          </>
+        ),
+      }]} />
+    </Modal>
+  )
+}
+
+function AgentsTab({ info }) {
   const { can } = useAuth()
   const { message } = App.useApp()
   const navigate = useNavigate()
@@ -63,6 +133,7 @@ function AgentsTab() {
   const [agents, setAgents] = useState([])
   const [loading, setLoading] = useState(false)
   const [linking, setLinking] = useState(null)
+  const [updating, setUpdating] = useState(null)
   const state = params.get('state') || 'all'
   const linked = params.get('linked') || undefined
   const search = params.get('search') || undefined
@@ -100,7 +171,7 @@ function AgentsTab() {
         <Input.Search allowClear placeholder="Hostname, OS, IP" style={{ width: 240 }} defaultValue={search} onSearch={(v) => set('search', v)} />
         {can('admin') && agents.some((a) => a.outdated && a.state !== 'revoked') && (
           <Popconfirm title="Update all outdated agents?" okText="Update"
-            description="Each agent downloads the new version from vCentral, checks it and restarts. Agents older than 0.4.0 need one reinstall instead."
+            description="Each agent downloads the new version from vCentral, checks it and restarts. Agents older than 0.4.0 cannot do this: use the Update button on their row for a command to run once on the VM."
             onConfirm={async () => {
               try {
                 const t = await api.post('/api/agents/update', { agent_ids: null })
@@ -129,7 +200,7 @@ function AgentsTab() {
           { title: 'OS', dataIndex: 'os_name', ellipsis: true, render: (v, a) => <Space size={6}><OsIcon family={a.os_family} />{v}</Space> },
           {
             title: 'Version', dataIndex: 'agent_version', width: 100,
-            render: (v, a) => <Space size={4}>{v}{a.outdated && <Tooltip title="A newer agent is available"><Tag color="gold">old</Tag></Tooltip>}</Space>,
+            render: (v, a) => <Space size={4}>{v}{a.outdated && <Tooltip title={a.can_self_update ? 'A newer agent is available' : 'A newer agent is available. This version cannot update itself: use Update to get the command'}><Tag color="gold">old</Tag></Tooltip>}</Space>,
           },
           {
             title: 'Last report', dataIndex: 'last_seen_at', width: 120,
@@ -137,9 +208,10 @@ function AgentsTab() {
           },
           { title: 'Enrolled', dataIndex: 'enrolled_at', width: 110, render: (v, a) => <Tooltip title={`Token: ${a.enrolled_with || '—'}`}>{fmtAgo(v)}</Tooltip> },
           ...(can('admin', 'operator') ? [{
-            title: '', key: 'actions', width: 190, fixed: 'right',
+            title: '', key: 'actions', width: 270, fixed: 'right',
             render: (_, a) => (
               <Space>
+                {a.outdated && a.state !== 'revoked' && <Button size="small" type="primary" onClick={() => setUpdating(a)}>Update</Button>}
                 {a.state !== 'revoked' && <Button size="small" onClick={() => setLinking(a)}>Link VM</Button>}
                 {a.state !== 'revoked' && (
                   <Popconfirm title={`Revoke ${a.hostname}?`} description="It will stop being accepted. Uninstall it on the VM too." okText="Revoke" okButtonProps={{ danger: true }}
@@ -159,6 +231,7 @@ function AgentsTab() {
         ]}
       />
       {linking && <LinkVmModal agent={linking} onClose={() => setLinking(null)} onSaved={load} />}
+      {updating && <UpdateAgentModal agent={updating} info={info} onClose={() => { setUpdating(null); load() }} />}
     </>
   )
 }
@@ -330,7 +403,7 @@ export default function Agents() {
       <Card size="small">
         <Tabs
           items={[
-            { key: 'agents', label: 'Agents', children: <AgentsTab /> },
+            { key: 'agents', label: 'Agents', children: <AgentsTab info={info} /> },
             ...(can('admin', 'operator') ? [
               { key: 'tokens', label: 'Enrollment tokens', children: <TokensTab fingerprint={info?.fingerprint} /> },
               { key: 'downloads', label: 'Downloads', children: info ? <DownloadsTab info={info} /> : null },
