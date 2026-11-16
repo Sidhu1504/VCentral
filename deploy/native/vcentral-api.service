@@ -1,0 +1,32 @@
+[Unit]
+Description=vCentral API and web UI
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=vcentral
+Group=vcentral
+WorkingDirectory=/opt/vcentral/backend
+EnvironmentFile=/etc/vcentral/vcentral.env
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+# Listens on localhost only; nginx provides HTTPS on 443.
+ExecStart=/opt/vcentral/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+# Hardening: the service only needs to read its code and config, and talk to the network.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

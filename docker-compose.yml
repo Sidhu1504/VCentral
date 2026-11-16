@@ -1,0 +1,67 @@
+name: vcentral
+
+# Only nginx publishes ports. The API, worker and database are reachable only inside this network.
+
+x-app-env: &app-env
+  env_file: .env
+  environment:
+    VCENTRAL_DATABASE_URL: postgresql+psycopg2://vcentral:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/vcentral
+    VCENTRAL_GUACD_HOST: guacd   # browser SSH/RDP
+
+services:
+  guacd:
+    image: guacamole/guacd:1.5.5   # Apache Guacamole proxy for browser SSH/RDP; reachable only inside this network
+    restart: unless-stopped
+
+  db:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vcentral
+      POSTGRES_USER: vcentral
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TIMESCALEDB_TELEMETRY: "off"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vcentral -d vcentral"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    image: vcentral:latest
+    restart: unless-stopped
+    <<: *app-env
+    volumes:
+      # The API reads the HTTPS certificate (not the key) to show its fingerprint for agent pinning.
+      - ./deploy/certs/vcentral.crt:/certs/vcentral.crt:ro
+      - ./deploy/keys/task-signing.key:/keys/task-signing.key:ro   # signs tasks for agents
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    image: vcentral:latest
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    <<: *app-env
+    depends_on:
+      app:
+        condition: service_healthy  # the API creates the tables first
+
+  nginx:
+    image: nginx:1.27.2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+    depends_on:
+      - app
+
+volumes:
+  db-data:
