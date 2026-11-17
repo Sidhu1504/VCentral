@@ -67,7 +67,7 @@ The **Onboarding** page lists every powered-on VM without an agent, its owner (s
 
 | Way | How |
 |---|---|
-| **Install through VMware Tools** (Onboarding or VM page) | Type the VM's **root** (Linux) or **Administrator** (Windows) login once. vCentral copies the agent into the VM through VMware Tools and installs it, even if the VM's network is blocked. The login is used for this one installation, held only in memory, and never saved or logged. Needs VMware Tools running. |
+| **Install through VMware Tools** (Onboarding or VM page) | Type the VM's **root** or a **sudo-capable user** such as `ubuntu` (Linux), or **Administrator** (Windows) login once. With a normal user, vCentral stages the agent in a private temporary folder and installs it with `sudo`, passing the same password to sudo through a file only that user can read (never on a command line). vCentral copies the agent into the VM through VMware Tools and installs it, even if the VM's network is blocked. The login is used for this one installation, held only in memory, and never saved or logged. Needs VMware Tools running. |
 | **One-time command** (same dialog) | vCentral creates a single-use token (valid 24 h) and shows the command to paste on the VM. |
 | **Enrollment token** (Agents page) | For scripts, VM templates or batches. |
 
@@ -109,9 +109,22 @@ The **IP & subnets** page shows an address as free only when nothing claims it:
 | Agent coverage | Which VMs have an agent, its state and version |
 | New and deleted VMs | Created, deleted, converted to template or back, with owner |
 | Resource usage | Average and peak CPU, memory and disk per VM, flagging **idle** (shrink or switch off) and **busy** VMs |
+| VMware Tools | VMs where Tools is not installed, not running or outdated, what that breaks, and how to fix it on that OS |
 | Powered-off VMs | Since when they are off, and the storage and IPs they still hold |
 | IP address usage | Every taken address and what holds it |
 | Task history | Tasks in the period and how many VMs succeeded or failed |
+
+**From the command line** (on the vCentral server, e.g. for cron or e-mail):
+```bash
+sudo /opt/vcentral/scripts/report.sh                         # list the reports
+sudo /opt/vcentral/scripts/report.sh tools --format table    # VMs without working VMware Tools
+sudo /opt/vcentral/scripts/report.sh usage --days 7 -o /tmp/usage.csv
+```
+Docker install: `docker compose exec app python -m app.cli report tools`.
+
+**Fixing VMware Tools from vCentral:** on VMs with an online agent, run the starter script **Install or start VMware Tools**.
+- **Linux:** it installs `open-vm-tools` if missing (apt / dnf / yum / zypper) and starts it.
+- **Windows:** first click *Guest OS → Install VMware Tools* in the vSphere Client, which only mounts the installer. The script then installs Tools silently (no reboot forced) and starts the service.
 
 ## Sign-up
 
@@ -120,6 +133,13 @@ The login page has **Create an account**. Accounts created there always get the 
 - **New accounts need admin approval** (on by default; recommended). Requests appear at the top of **Users** with Approve / Reject, and the admin team is told by Google Chat or email when those are set up. Until approved, the person cannot sign in.
 
 Viewers can see every VM's IPs and owners and agent inventories (software, services, open ports); they see task names and status but not scripts or output. Keep approval on unless everyone who can reach vCentral should see that. Sign-ups are limited to 5 per IP address per hour and are recorded in the audit log.
+
+## Windows VMs that go to sleep
+
+A Windows VM that goes into idle sleep stops VMware Tools and the agent. vCenter then shows Tools "not running" and no IP, and the VM looks broken.
+
+- **The agent (0.6.1+) keeps Windows from idle sleep** while it runs. It holds a "system required" power request, which shows in `powercfg /requests`. A user choosing Sleep deliberately still works. To allow idle sleep, install with `--allow-sleep`.
+- **VMs that are asleep now** are marked **Not running: asleep?** on the Onboarding and VM pages. Click **Wake up**: vCentral presses F15 on the VM's keyboard through vCenter (no network or login needed; F15 does nothing in programs). This needs vSphere 6.5+ and the vCenter privilege *Virtual machine → Interaction → Inject USB HID scan codes* for vCentral's account.
 
 ## Remote access: SSH and RDP in the browser
 
@@ -152,7 +172,7 @@ On a VM's page, admins and operators click **Connect (SSH / RDP)**, pick the VM'
 - **Variables.** Write `{{NAME}}` in a script, with no quotes around it, e.g. `systemctl restart -- {{SERVICE}}`. When the script is run, vCentral asks for the value; a schedule stores its values.
   - Each value is inserted as one quoted literal for bash or PowerShell, so a value can never add commands.
   - Variables are for bash and PowerShell scripts, not for wrapped Python or batch files.
-- **Starter scripts** (Script library, admins): disk usage, top processes, pending reboot/updates, who is logged in, listening ports, time sync, failed services, service status, restart a service, and the last lines of a log file. Each has a Linux and a Windows version, and all only read information except *Restart a service*.
+- **Starter scripts** (Script library, admins): disk usage, top processes, pending reboot/updates, who is logged in, listening ports, time sync, failed services, service status, restart a service, the last lines of a log file, and install or start VMware Tools. Each has a Linux and a Windows version, and all only read information except *Restart a service* and *Install or start VMware Tools*.
 - **Export / Import** the whole library as a JSON file, for backup or to copy it to another vCentral server. Scripts with the same name are skipped or replaced, as you choose. Each script can also be downloaded as `.sh` / `.ps1`.
 - **Results (CSV)** on a task page downloads VM, status, exit code, timing and output for every VM.
 

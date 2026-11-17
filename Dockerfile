@@ -1,4 +1,4 @@
-ARG VCENTRAL_VERSION=0.6.0
+ARG VCENTRAL_VERSION=0.6.1
 
 # --- build the web UI -------------------------------------------------------------------------
 FROM node:20.18.0-alpine AS ui

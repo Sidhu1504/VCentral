@@ -22,6 +22,8 @@ type Config struct {
 	TaskKey string `json:"task_key,omitempty"`
 	// Set with "install --disable-tasks": this machine only reports, it never runs tasks.
 	TasksDisabled bool `json:"tasks_disabled,omitempty"`
+	// AllowSleep: do not stop Windows from idle sleep (installed with --allow-sleep).
+	AllowSleep bool `json:"allow_sleep,omitempty"`
 	// Set with "install --template": installed in a VM template. The template itself stays idle; every VM
 	// deployed from it (new BIOS UUID) enrolls itself with EnrollToken on first boot.
 	Template bool `json:"template,omitempty"`

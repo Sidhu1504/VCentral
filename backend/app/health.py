@@ -74,3 +74,19 @@ def evaluate_health(db: Session, vm_ids: list[int] | None = None) -> int:
             vm.problems, vm.health = new, health
     db.commit()
     return changes
+
+
+def tools_state(vm) -> str:
+    """running | not_installed | asleep (probably) | not_running | off | unknown, for the UI."""
+    if vm.power_state != "poweredOn":
+        return "off"
+    if vm.tools_status == "guestToolsRunning":
+        return "running"
+    if vm.tools_version_status == "guestToolsNotInstalled":
+        return "not_installed"
+    if vm.tools_status is None and vm.tools_version_status is None:
+        return "unknown"
+    # Installed but stopped on a Windows VM that used to have an IP: almost always Windows idle sleep.
+    if vm.os_family == "windows" and vm.last_known_ips:
+        return "asleep"
+    return "not_running"

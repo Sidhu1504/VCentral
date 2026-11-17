@@ -2,6 +2,7 @@ import csv
 import io
 from datetime import timedelta
 
+from pyVmomi import vim, vmodl
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -10,8 +11,10 @@ from sqlalchemy.orm import Session
 
 from ..agents import agent_state
 from ..audit import audit
+from ..vcenter import VCenterClient
+from ..config import get_settings
 from ..db import get_db, iso, utcnow
-from ..health import evaluate_health
+from ..health import evaluate_health, tools_state
 from ..runtime import offline_after_seconds
 from ..models import VM, Agent, User, VMHistory, VMMetric, VMMetricHourly
 from ..security import require_operator, require_viewer
@@ -56,6 +59,7 @@ def vm_summary(vm: VM, agent: str | None = None) -> dict:
         "is_deleted": vm.is_deleted, "first_seen_at": iso(vm.first_seen_at),
         "vcenter_created_at": iso(vm.vcenter_created_at), "deleted_at": iso(vm.deleted_at),
         "critical": vm.critical, "health": vm.health, "problems": vm.problems or [],
+        "tools_version_status": vm.tools_version_status, "tools": tools_state(vm),
     }
 
 
@@ -218,6 +222,33 @@ def update_vm(vm_id: int, body: VMUpdate, request: Request,
         if "critical" in changes:
             evaluate_health(db, [vm.id])  # show the new severity right away
     return vm_detail(db, vm)
+
+
+@router.post("/{vm_id}/wake")
+def wake_vm(vm_id: int, request: Request, db: Session = Depends(get_db), user: User = Depends(require_operator)):
+    """Wake a guest from idle sleep by pressing F15 on its keyboard through vCenter (no network or login)."""
+    vm = _get_vm(db, vm_id)
+    if vm.is_deleted or vm.power_state != "poweredOn":
+        raise HTTPException(400, "The VM is not powered on")
+    client = VCenterClient(get_settings())
+    try:
+        client.wake(vm.uuid)
+    except vim.fault.NoPermission:
+        raise HTTPException(403, "vCentral's vCenter account needs the privilege Virtual machine > Interaction > "
+                                 "Inject USB HID scan codes")
+    except vmodl.fault.MethodNotFound:
+        raise HTTPException(501, "This vCenter / ESXi version cannot send key presses to VMs (needs vSphere 6.5 or later). "
+                                 "Open the VM console and press a key instead.")
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"vCenter could not send the key press: {getattr(exc, 'msg', None) or exc}")
+    finally:
+        client.disconnect()
+    db.add(VMHistory(vm_id=vm.id, ts=utcnow(), kind="wake", message=f"Wake-up key press sent by {user.username}"))
+    audit(db, request, user.username, "vm_wake", target=vm.name)
+    db.commit()
+    return {"ok": True, "message": "Key press sent. If the VM was asleep, VMware Tools and its IP come back within about a minute."}
 
 
 @router.get("/{vm_id}/metrics")

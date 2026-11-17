@@ -61,7 +61,7 @@ func reenroll(cfgPath string, cfg *Config) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	fresh.TasksDisabled = cfg.TasksDisabled
+	fresh.TasksDisabled, fresh.AllowSleep = cfg.TasksDisabled, cfg.AllowSleep
 	if err := saveConfig(cfgPath, fresh); err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func waitAndEnroll(cfgPath string, cfg *Config, biosUUID string, stop <-chan str
 		}
 		fresh, err := enroll(cfg.Server, cfg.Fingerprint, cfg.EnrollToken)
 		if err == nil {
-			fresh.TasksDisabled = cfg.TasksDisabled
+			fresh.TasksDisabled, fresh.AllowSleep = cfg.TasksDisabled, cfg.AllowSleep
 			if err := saveConfig(cfgPath, fresh); err != nil {
 				return nil, err
 			}
@@ -134,6 +134,7 @@ func runLoop(cfgPath string, stop <-chan struct{}) error {
 		return err
 	}
 	log.Printf("vCentral agent %s (%s) started; reporting to %s as %s", Version, Platform, cfg.Server, cfg.AgentID)
+	keepAwake(cfg)
 	if self, err := os.Executable(); err == nil {
 		cleanupOldExecutable(self) // leftover from a previous update on Windows
 	}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Alert, App, Button, Card, Col, Progress, Row, Space, Statistic, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
 import { SendOutlined } from '@ant-design/icons'
+import { ToolsCell } from '../components/Tools'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import InstallAgentModal from '../components/InstallAgentModal'
@@ -27,8 +28,8 @@ function Queue({ data, reload }) {
             render: (v, r) => <Tooltip title={fmtDate(v)}><span style={r.overdue ? { color: STATUS.critical, fontWeight: 600 } : null}>{v ? fmtAgo(v).replace(' ago', '') : '—'}{r.overdue && ' (overdue)'}</span></Tooltip>,
           },
           {
-            title: 'VMware Tools', dataIndex: 'tools_status', width: 120,
-            render: (t) => (t === 'guestToolsRunning' ? 'Running' : <Tooltip title="Install with the one-time command instead"><Typography.Text type="secondary">Not running</Typography.Text></Tooltip>),
+            title: 'VMware Tools', dataIndex: 'tools', width: 240,
+            render: (_, r) => <ToolsCell vm={r} onWoken={reload} />,
           },
           {
             title: 'Last install', dataIndex: 'last_push', width: 150,
@@ -93,7 +94,7 @@ export default function Onboarding() {
         {can('admin', 'operator') && <Button icon={<SendOutlined />} onClick={sendDigest}>Send digest now</Button>}
       </Space>
       <Typography.Paragraph type="secondary">
-        Powered-on VMs without the agent. Install it through VMware Tools with the VM's root/Administrator login (used
+        Powered-on VMs without the agent. Install it through VMware Tools with the VM's root, sudo-capable user or Administrator login (used
         once, never saved), or with a one-time command.
       </Typography.Paragraph>
       {(!data.policy.enabled || (!data.channels.email && !data.channels.chat)) && (

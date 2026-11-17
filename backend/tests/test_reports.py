@@ -68,3 +68,26 @@ def test_viewers_can_read_reports(client):
         v.post("/api/auth/change-password", headers=H, json={"current_password": "Viewer-Pass-2026", "new_password": "Viewer-Pass-2027"})
         assert v.get("/api/reports/inventory").status_code == 200
         assert v.get("/api/reports/tasks/export.csv").status_code == 200
+
+
+def test_tools_report_and_cli(client, capsys):
+    with SessionLocal() as db:
+        vms = {v.name: v for v in db.query(VM)}
+        vms["web01"].tools_version_status, vms["web01"].tools_status = "guestToolsNotInstalled", "guestToolsNotRunning"
+        vms["db01"].tools_version_status, vms["db01"].tools_status = "guestToolsCurrent", "guestToolsNotRunning"
+        vms["win01"].tools_version_status, vms["win01"].tools_status = "guestToolsNeedUpgrade", "guestToolsRunning"
+        db.commit()
+    r = client.get("/api/reports/tools").json()
+    assert [(x["name"], x["problem"]) for x in r["rows"]] == [
+        ("web01", "not installed"), ("db01", "installed, not running"), ("win01", "outdated")]
+    assert "open-vm-tools" in r["rows"][0]["fix"] and "Guest OS" in r["rows"][2]["fix"]  # per-OS advice
+    assert {s["label"]: s["value"] for s in r["summary"]}["Not installed"] == 1
+
+    from app.cli import main
+    assert main(["report", "tools"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0].startswith("VM,Problem,Power") and len(out) == 4
+    assert main(["report", "tools", "--format", "table"]) == 0
+    table = capsys.readouterr().out
+    assert "Not installed: 1" in table and "web01" in table
+    assert main(["report"]) == 0 and "tools" in capsys.readouterr().out

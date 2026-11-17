@@ -89,7 +89,7 @@ export default function InstallAgentModal({ vm, onClose, onDone }) {
         <Form form={form} layout="vertical" onFinish={push} autoComplete="off">
           <Form.Item name="username" label={windows ? 'Windows administrator account' : 'Linux account'}
             initialValue={windows ? 'Administrator' : 'root'}
-            extra={windows ? 'A local or domain account in the Administrators group (e.g. Administrator or .\\admin).' : 'Use root: the agent installs to /usr/local/bin and runs as a system service.'}
+            extra={windows ? 'A local or domain account in the Administrators group (e.g. Administrator or .\\admin).' : 'root, or a normal user that may use sudo (e.g. ubuntu): vCentral then installs with sudo using the same password.'}
             rules={[{ required: true }]}>
             <Input autoComplete="off" />
           </Form.Item>

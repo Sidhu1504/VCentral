@@ -420,6 +420,16 @@ class VCenterClient:
         }
 
     # -- owners ---------------------------------------------------------------------------
+    def wake(self, instance_uuid: str) -> None:
+        """Press F15 on the VM's keyboard (through vCenter, no network or login needed). F15 does nothing in
+        applications, but counts as user activity, so a guest in idle sleep / standby wakes up."""
+        self.ensure_connected()
+        vm = self.si.content.searchIndex.FindByUuid(None, instance_uuid, True, True)
+        if vm is None:
+            raise LookupError("VM not found in vCenter")
+        f15 = vim.vm.UsbScanCodeSpec.KeyEvent(usbHidCode=(0x6A << 16) | 7)  # HID usage 0x6A = F15
+        vm.PutUsbScanCodes(vim.vm.UsbScanCodeSpec(keyEvents=[f15]))
+
     def user_activity(self) -> dict[str, dict[str, dict]]:
         """VM moid -> {user: {"count": n, "last": ts, "kinds": set}} from the activity events vCenter still keeps."""
         self.ensure_connected()

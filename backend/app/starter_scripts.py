@@ -183,4 +183,67 @@ Get-Service -Name {{SERVICE}} | Select-Object Name, Status | Format-Table -AutoS
         "windows_script": """Get-Content -LiteralPath {{LOGFILE}} -Tail 100 -ErrorAction Stop
 """,
     },
+    {
+        "name": "Install or start VMware Tools",
+        "description": "Starter script. CHANGES THE VM: makes sure VMware Tools runs. Linux: installs open-vm-tools if missing and starts it. Windows: starts the VMware Tools service; if Tools is not installed, first click Install VMware Tools in the vSphere Client (that mounts the installer), then run this to install it silently.",
+        "timeout_seconds": 900,
+        "linux_script": """running() { pgrep -x vmtoolsd >/dev/null 2>&1; }
+if running; then
+    echo "VMware Tools is already running: $(vmware-toolbox-cmd -v 2>/dev/null || echo open-vm-tools)"
+    exit 0
+fi
+if ! command -v vmtoolsd >/dev/null 2>&1; then
+    echo "Installing open-vm-tools..."
+    if command -v apt-get >/dev/null 2>&1; then
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -q && apt-get install -y -q open-vm-tools
+    elif command -v dnf >/dev/null 2>&1; then dnf install -y -q open-vm-tools
+    elif command -v yum >/dev/null 2>&1; then yum install -y -q open-vm-tools
+    elif command -v zypper >/dev/null 2>&1; then zypper --non-interactive install open-vm-tools
+    else echo "No supported package manager (apt, dnf, yum, zypper) found"; exit 1
+    fi || { echo "Installing open-vm-tools failed (is a package repository reachable?)"; exit 1; }
+fi
+for svc in open-vm-tools vmtoolsd; do
+    if systemctl cat "$svc.service" >/dev/null 2>&1; then
+        systemctl enable "$svc.service" >/dev/null 2>&1 || true
+        systemctl restart "$svc.service" && break
+    fi
+done
+sleep 3
+if running; then
+    echo "VMware Tools is running: $(vmware-toolbox-cmd -v 2>/dev/null || echo open-vm-tools)"
+    echo "vCenter shows it within a minute; vCentral with its next sync."
+else
+    echo "vmtoolsd is still not running. Recent log:"
+    journalctl -u open-vm-tools -u vmtoolsd -n 20 --no-pager 2>/dev/null
+    exit 1
+fi
+""",
+        "windows_script": """$svc = Get-Service -Name VMTools -ErrorAction SilentlyContinue
+if (-not $svc) {
+    # The vSphere Client's "Install VMware Tools" mounts the installer as a CD drive in the VM.
+    $cd = Get-WmiObject Win32_CDROMDrive | Where-Object { $_.VolumeName -like 'VMware Tools*' } | Select-Object -First 1
+    if (-not $cd) {
+        "VMware Tools is not installed, and its installer is not mounted."
+        "In the vSphere Client: right-click this VM > Guest OS > Install VMware Tools (this only mounts the installer), then run this script again."
+        exit 1
+    }
+    $os = Get-WmiObject Win32_OperatingSystem
+    if ($os.OSArchitecture -like '64*') { $setup = Join-Path $cd.Drive 'setup64.exe' } else { $setup = Join-Path $cd.Drive 'setup.exe' }
+    if (-not (Test-Path $setup)) { $setup = Join-Path $cd.Drive 'setup.exe' }
+    "Installing VMware Tools silently from $setup (no reboot now)..."
+    $p = Start-Process -FilePath $setup -ArgumentList '/S /v "/qn REBOOT=R"' -Wait -PassThru
+    if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { "Setup failed with exit code $($p.ExitCode)"; exit 1 }
+    if ($p.ExitCode -eq 3010) { "Installed. Windows asks for a reboot to finish; plan one when convenient." }
+    Start-Sleep -Seconds 5
+    $svc = Get-Service -Name VMTools -ErrorAction SilentlyContinue
+    if (-not $svc) { "Setup finished but the VMTools service is not there yet; reboot the VM."; exit 1 }
+}
+Set-Service -Name VMTools -StartupType Automatic
+if ($svc.Status -ne 'Running') { Start-Service -Name VMTools; Start-Sleep -Seconds 3 }
+$svc = Get-Service -Name VMTools
+"VMware Tools service: $($svc.Status)"
+if ($svc.Status -ne 'Running') { exit 1 }
+""",
+    },
 ]

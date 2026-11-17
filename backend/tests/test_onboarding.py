@@ -38,8 +38,17 @@ class FakeGuest:
         FakeGuest.calls.append(("run", program, args))
         return FakeGuest.exit_code
 
+    output = b"vCentral agent 0.3.0 installed and running.\n"
+
     def download(self, path):
-        return b"vCentral agent 0.3.0 installed and running.\n"
+        return FakeGuest.output
+
+    def make_temp_dir(self):
+        FakeGuest.calls.append(("mkdtemp",))
+        return "/tmp/vcentral-x1"
+
+    def delete_dir(self, path):
+        FakeGuest.calls.append(("rmdir", path))
 
     def delete(self, path):
         FakeGuest.calls.append(("delete", path))
@@ -58,6 +67,7 @@ def client(monkeypatch):
         run_sync(db, fake, get_settings())
         update_unmanaged(db)
     FakeGuest.calls, FakeGuest.reject_login, FakeGuest.exit_code = [], False, 0
+    FakeGuest.output = b"vCentral agent 0.3.0 installed and running.\n"
     monkeypatch.setattr(guestops, "SESSION_FACTORY", FakeGuest)
     monkeypatch.setattr(guestops, "ENROLL_WAIT_SECONDS", 0)
     with TestClient(app) as c:
@@ -186,3 +196,24 @@ def test_settings_and_test_message(client):
     s = client.put("/api/system/settings", headers=H, json={"onboarding": {"enabled": True, "overdue_after_days": 7}}).json()
     assert s["onboarding"]["enabled"] is True and s["onboarding"]["overdue_after_days"] == 7
     assert client.put("/api/system/settings", headers=H, json={"onboarding": {"every_days": 0}}).status_code == 400
+
+
+def test_push_as_sudo_user(client):
+    """A normal user (e.g. 'ubuntu' on cloud images) installs through sudo; the password is never on a command line."""
+    r = client.post(f"/api/vms/{vm_id('web01')}/push", headers=H, json={"username": "ubuntu", "password": "pa'ss $x"})
+    job = wait_job(client, r.json()["id"])
+    assert job["status"] == "succeeded", job
+    kinds = [c[0] for c in FakeGuest.calls]
+    assert kinds == ["open", "mkdtemp", "upload", "upload", "run", "rmdir"]
+    agent_up, pw_up, run = FakeGuest.calls[2], FakeGuest.calls[3], FakeGuest.calls[4]
+    assert agent_up[1] == "/tmp/vcentral-x1/vcentral-agent" and agent_up[3] == 0o755
+    assert pw_up[1] == "/tmp/vcentral-x1/.sudo" and pw_up[3] == 0o600
+    assert "sudo -S" in run[2] and "pa'ss" not in run[2] and "< /tmp/vcentral-x1/.sudo" in run[2]
+    assert FakeGuest.calls[-1] == ("rmdir", "/tmp/vcentral-x1")  # staging always removed
+    assert any("with sudo as 'ubuntu'" in s["message"] for s in job["steps"])
+
+    FakeGuest.calls, FakeGuest.exit_code = [], 1
+    FakeGuest.output = b"ubuntu is not in the sudoers file.  This incident will be reported.\n"
+    job = wait_job(client, client.post(f"/api/vms/{vm_id('db01')}/push", headers=H, json={"username": "ubuntu", "password": "x"}).json()["id"])
+    assert job["status"] == "failed" and "may not use sudo" in job["error"]
+    assert FakeGuest.calls[-1][0] == "rmdir"

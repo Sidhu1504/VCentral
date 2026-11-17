@@ -11,7 +11,7 @@
 #                                              set VCENTRAL_PREFIX to a writable folder)
 set -euo pipefail
 
-VCENTRAL_VERSION=0.6.0
+VCENTRAL_VERSION=0.6.1
 PREFIX=${VCENTRAL_PREFIX:-/opt/vcentral}
 CONF_DIR=/etc/vcentral
 ENV_FILE=$CONF_DIR/vcentral.env

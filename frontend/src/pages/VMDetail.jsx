@@ -6,13 +6,14 @@ import {
 } from 'antd'
 import { DesktopOutlined, EditOutlined } from '@ant-design/icons'
 import ConnectModal from '../components/ConnectModal'
+import { ToolsCell } from '../components/Tools'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import Chart, { axisStyle, baseOption, useViz } from '../components/Chart'
 import UsageBar from '../components/UsageBar'
 import { AgentCard, AgentDisks, InventoryCard, NoAgentCard, RecentTasks, TopProcesses } from '../components/AgentPanels'
 import { HealthTag, ProblemAlerts } from '../components/Health'
-import { EVENT_KINDS, fmtAgo, fmtDate, fmtGB, fmtMem, fmtRate, fmtUptime, TOOLS_STATUS } from '../format'
+import { EVENT_KINDS, fmtAgo, fmtDate, fmtGB, fmtMem, fmtRate, fmtUptime } from '../format'
 import { AgentTag, OsIcon, OwnerCell, PowerTag } from './VMs'
 
 const pct = (v) => (v === null || v === undefined ? '—' : `${Math.round(v)}%`)
@@ -249,7 +250,7 @@ export default function VMDetail() {
               <Descriptions.Item label={<SourceLabel text="Active memory (vCenter)" tip={'Memory the guest touched recently, estimated by the hypervisor. It is not the same as "used" memory inside the OS (shown on the agent card, same as `free` / Task Manager) and can be higher or lower.'} />}>
                 <UsageBar value={vm.mem_pct} width={70} />
               </Descriptions.Item>
-              <Descriptions.Item label="VMware Tools"><Tag color={TOOLS_STATUS[vm.tools_status]?.color}>{TOOLS_STATUS[vm.tools_status]?.label || vm.tools_status || 'Unknown'}</Tag></Descriptions.Item>
+              <Descriptions.Item label="VMware Tools"><ToolsCell vm={vm} onWoken={load} /></Descriptions.Item>
               <Descriptions.Item label="ESXi host">{vm.esxi_host || '—'}</Descriptions.Item>
               <Descriptions.Item label="Cluster">{vm.cluster || '—'}</Descriptions.Item>
               <Descriptions.Item label="Folder">{vm.folder || '—'}</Descriptions.Item>

@@ -20,7 +20,7 @@ import (
 const usageText = `vCentral agent %s
 
 Usage:
-  vcentral-agent install --server URL --token TOKEN [--fingerprint SHA256] [--disable-tasks]
+  vcentral-agent install --server URL --token TOKEN [--fingerprint SHA256] [--disable-tasks] [--allow-sleep]
         Enroll this machine and install the agent as a service (run as root / Administrator).
         --disable-tasks: report only; never run scripts or updates sent by vCentral.
         --template: for a VM template (needs a reusable token). The template stays idle; every VM deployed
@@ -130,6 +130,7 @@ func popFlag(args []string, names ...string) ([]string, bool) {
 func cmdInstall(args []string) error {
 	args, disableTasks := popFlag(args, "--disable-tasks", "-disable-tasks")
 	args, template := popFlag(args, "--template", "-template")
+	args, allowSleep := popFlag(args, "--allow-sleep", "-allow-sleep")
 	server, token, fp, _, err := enrollFlags("install", args, false)
 	if err != nil {
 		return err
@@ -159,6 +160,7 @@ func cmdInstall(args []string) error {
 		}
 	}
 	cfg.TasksDisabled = disableTasks
+	cfg.AllowSleep = allowSleep
 	stopService()
 	self, err := os.Executable()
 	if err != nil {

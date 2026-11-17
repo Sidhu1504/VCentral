@@ -155,3 +155,29 @@ def test_schema_upgrade_adds_missing_columns():
     assert "critical" not in {c["name"] for c in inspect(engine).get_columns("vms")}
     init_db()
     assert "critical" in {c["name"] for c in inspect(engine).get_columns("vms")}
+
+
+def test_tools_state_and_wake(setup, monkeypatch):
+    client, _ = setup
+    from app.health import tools_state
+    from app.vcenter import VCenterClient
+
+    def make(**kw):
+        base = dict(power_state="poweredOn", tools_status="guestToolsNotRunning", tools_version_status="guestToolsCurrent",
+                    os_family="windows", last_known_ips=["10.0.0.7"])
+        return VM(**{**base, **kw})
+    assert tools_state(make()) == "asleep"  # installed, stopped, Windows, had an IP: idle sleep
+    assert tools_state(make(tools_status="guestToolsRunning")) == "running"
+    assert tools_state(make(tools_version_status="guestToolsNotInstalled")) == "not_installed"
+    assert tools_state(make(os_family="linux")) == "not_running"
+    assert tools_state(make(power_state="poweredOff")) == "off"
+
+    pressed = []
+    monkeypatch.setattr(VCenterClient, "wake", lambda self, uuid: pressed.append(uuid))
+    monkeypatch.setattr(VCenterClient, "disconnect", lambda self: None)
+    with SessionLocal() as db:
+        target = db.query(VM).filter(VM.power_state == "poweredOn").first()
+        target_id, target_uuid = target.id, target.uuid
+    r = client.post(f"/api/vms/{target_id}/wake", headers=H)
+    assert r.status_code == 200 and pressed == [target_uuid]
+    assert client.get(f"/api/vms/{target_id}/history").json()[0]["kind"] == "wake"

@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { Alert, App, Button, Card, Col, Empty, Input, Row, Segmented, Skeleton, Space, Statistic, Table, Tag, Tooltip, Typography } from 'antd'
 import {
   AlertOutlined, ApartmentOutlined, ArrowLeftOutlined, BarChartOutlined, CloudServerOutlined, DatabaseOutlined,
-  DownloadOutlined, IdcardOutlined, PlayCircleOutlined, PoweroffOutlined, PrinterOutlined, SwapOutlined,
+  DownloadOutlined, IdcardOutlined, PlayCircleOutlined, PoweroffOutlined, PrinterOutlined, SwapOutlined, ToolOutlined,
 } from '@ant-design/icons'
 import { api } from '../api'
 import { fmtDate } from '../format'
@@ -11,9 +11,10 @@ import './reports.css'
 
 const ICONS = {
   inventory: <DatabaseOutlined />, owners: <IdcardOutlined />, problems: <AlertOutlined />, agents: <CloudServerOutlined />,
-  changes: <SwapOutlined />, usage: <BarChartOutlined />, off: <PoweroffOutlined />, ip: <ApartmentOutlined />, tasks: <PlayCircleOutlined />,
+  changes: <SwapOutlined />, usage: <BarChartOutlined />, off: <PoweroffOutlined />, ip: <ApartmentOutlined />, tasks: <PlayCircleOutlined />, tools: <ToolOutlined />,
 }
 const FLAG_COLOR = { idle: 'blue', 'CPU busy': 'red', 'memory high': 'orange', 'disk nearly full': 'volcano' }
+const PROBLEM_COLOR = { 'not installed': 'red', 'installed, not running': 'orange', outdated: 'gold' }
 
 function cell(col, value, row) {
   if (value === null || value === undefined || value === '') return <Typography.Text type="secondary">—</Typography.Text>
@@ -22,7 +23,7 @@ function cell(col, value, row) {
     case 'pct': return `${Math.round(value * 10) / 10}%`
     case 'date': return <Tooltip title={fmtDate(value)}>{fmtDate(value)}</Tooltip>
     case 'tags': return value.length ? value.slice(0, 8).map((t) => <Tag key={t} color={FLAG_COLOR[t]} style={{ marginBottom: 2 }}>{t}</Tag>).concat(value.length > 8 ? [<Tag key="more">+{value.length - 8} more</Tag>] : []) : <Typography.Text type="secondary">—</Typography.Text>
-    default: return String(value)
+    default: return PROBLEM_COLOR[value] ? <Tag color={PROBLEM_COLOR[value]}>{value}</Tag> : String(value)
   }
 }
 

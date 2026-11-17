@@ -46,7 +46,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="vCentral", version="0.6.0", lifespan=lifespan,
+app = FastAPI(title="vCentral", version="0.6.1", lifespan=lifespan,
               docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None)
 
 

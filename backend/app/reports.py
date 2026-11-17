@@ -2,6 +2,8 @@
 
 Column types (for the UI): vm (link, row has vm_id), number, pct, date, text, tags (list of strings).
 """
+import csv
+import io
 from collections import defaultdict
 from datetime import timedelta
 
@@ -190,6 +192,62 @@ def usage(db: Session, days: int) -> dict:
     }
 
 
+TOOLS_VERSION = {
+    "guestToolsNotInstalled": "not installed", "guestToolsCurrent": "current", "guestToolsUnmanaged": "open-vm-tools (OS-managed)",
+    "guestToolsNeedUpgrade": "upgrade available", "guestToolsSupportedOld": "old but supported",
+    "guestToolsTooOld": "too old (unsupported)", "guestToolsBlacklisted": "known-bad version",
+    "guestToolsSupportedNew": "newer than host", "guestToolsTooNew": "too new for host",
+}
+OUTDATED = {"guestToolsNeedUpgrade", "guestToolsSupportedOld", "guestToolsTooOld", "guestToolsBlacklisted"}
+FIX = {
+    "linux": "Install open-vm-tools (apt install open-vm-tools / dnf install open-vm-tools), or run the 'Install or start VMware Tools' script if the VM has the agent",
+    "windows": "vSphere Client: right-click the VM > Guest OS > Install/Upgrade VMware Tools, then run setup in the VM",
+    "other": "Install VMware Tools or the OS's open-vm-tools package",
+}
+
+
+def tools(db: Session, days: int) -> dict:
+    """VMs where VMware Tools is missing, not running or outdated (from vCenter, so it covers every VM)."""
+    agents = _agents_by_vm(db)
+    counts = defaultdict(int)
+    rows = []
+    for v in _active_vms(db):
+        on = v.power_state == "poweredOn"
+        version = v.tools_version_status
+        if version == "guestToolsNotInstalled":
+            problem = "not installed"
+        elif on and v.tools_status != "guestToolsRunning":
+            problem = "installed, not running"
+        elif version in OUTDATED:
+            problem = "outdated"
+        else:
+            counts["ok" if version else "unknown"] += 1
+            continue
+        counts[problem] += 1
+        a = agents.get(v.id)
+        impact = "vCenter cannot see its IP, disks or guest OS; no-IP alerts and agent install through VMware Tools do not work" \
+            if problem != "outdated" else "May miss fixes; vCenter shows it as needing an upgrade"
+        rows.append({"vm_id": v.id, "name": v.name, "problem": problem, "power": v.power_state,
+                     "running": "yes" if v.tools_status == "guestToolsRunning" else "no",
+                     "version": TOOLS_VERSION.get(version, version or "unknown"), "os": v.guest_os or "",
+                     "ip": v.primary_ip or (v.last_known_ips or [""])[0], "agent": a._state if a else "none",
+                     "owner": v.owner or "", "impact": impact, "fix": FIX.get(v.os_family or "other", FIX["other"])})
+    order = {"not installed": 0, "installed, not running": 1, "outdated": 2}
+    rows.sort(key=lambda r: (order[r["problem"]], r["power"] != "poweredOn", r["name"].lower()))
+    return {
+        "columns": [col("name", "VM", "vm"), col("problem", "Problem"), col("power", "Power"), col("running", "Tools running"),
+                    col("version", "Tools version"), col("os", "OS"), col("ip", "IP (last known)"), col("agent", "Agent"),
+                    col("owner", "Owner"), col("impact", "What it affects"), col("fix", "How to fix")],
+        "rows": rows,
+        "summary": [{"label": "Not installed", "value": counts["not installed"]},
+                    {"label": "Installed, not running", "value": counts["installed, not running"]},
+                    {"label": "Outdated", "value": counts["outdated"]},
+                    {"label": "OK", "value": counts["ok"]}],
+        "note": "VMs with an online agent can be fixed from vCentral: run the 'Install or start VMware Tools' starter script on them. "
+                "Powered-off VMs are only listed when Tools is not installed or outdated.",
+    }
+
+
 def powered_off(db: Session, days: int) -> dict:
     now = utcnow()
     off = [v for v in _active_vms(db) if v.power_state in ("poweredOff", "suspended")]
@@ -278,6 +336,8 @@ REPORTS = {
                 "description": "VMs created, deleted, converted to templates or brought back, with owner."},
     "usage": {"title": "Resource usage", "fn": usage, "periodic": True, "icon": "usage",
               "description": "Average and peak CPU, memory and disk per VM, flagging idle and overloaded VMs."},
+    "tools": {"title": "VMware Tools", "fn": tools, "periodic": False, "icon": "tools",
+              "description": "VMs where VMware Tools is not installed, not running or outdated, what that breaks and how to fix it."},
     "powered-off": {"title": "Powered-off VMs", "fn": powered_off, "periodic": True, "icon": "off",
                     "description": "VMs that are off, since when, and the storage and IPs they still hold."},
     "ip": {"title": "IP address usage", "fn": ip_usage, "periodic": False, "icon": "ip",
@@ -292,3 +352,20 @@ def run_report(db: Session, key: str, days: int) -> dict:
     result = r["fn"](db, days)
     return {"key": key, "title": r["title"], "description": r["description"], "periodic": r["periodic"],
             "days": days if r["periodic"] else None, "generated_at": iso(utcnow()), **result}
+
+
+def _cell(value):
+    if isinstance(value, list):
+        value = "; ".join(str(v) for v in value)
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value  # never a formula when opened in Excel
+    return value
+
+
+def to_csv(report: dict) -> str:
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow([c["title"] for c in report["columns"]])
+    for row in report["rows"]:
+        w.writerow([_cell(row.get(c["key"])) for c in report["columns"]])
+    return buf.getvalue()
