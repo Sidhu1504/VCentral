@@ -23,6 +23,7 @@ import Scripts from './pages/Scripts'
 import Schedules from './pages/Schedules'
 import Owners from './pages/Owners'
 import Reports from './pages/Reports'
+import Infrastructure from './pages/Infrastructure'
 
 function Root() {
   const { user, can } = useAuth()
@@ -35,6 +36,7 @@ function Root() {
         <Route index element={<Dashboard />} />
         <Route path="vms" element={<VMs />} />
         <Route path="vms/:id" element={<VMDetail />} />
+        <Route path="infrastructure" element={<Infrastructure />} />
         <Route path="network" element={<Network />} />
         <Route path="agents" element={<Agents />} />
         <Route path="onboarding" element={<Onboarding />} />

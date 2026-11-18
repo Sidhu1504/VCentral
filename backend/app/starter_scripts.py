@@ -222,7 +222,12 @@ fi
         "windows_script": """$svc = Get-Service -Name VMTools -ErrorAction SilentlyContinue
 if (-not $svc) {
     # The vSphere Client's "Install VMware Tools" mounts the installer as a CD drive in the VM.
-    $cd = Get-WmiObject Win32_CDROMDrive | Where-Object { $_.VolumeName -like 'VMware Tools*' } | Select-Object -First 1
+    # vCentral's "Install VMware Tools" mounts it just before this runs, so give Windows up to 90 s to see the disc.
+    for ($i = 0; $i -lt 18; $i++) {
+        $cd = Get-WmiObject Win32_CDROMDrive | Where-Object { $_.VolumeName -like 'VMware Tools*' } | Select-Object -First 1
+        if ($cd) { break }
+        Start-Sleep -Seconds 5
+    }
     if (-not $cd) {
         "VMware Tools is not installed, and its installer is not mounted."
         "In the vSphere Client: right-click this VM > Guest OS > Install VMware Tools (this only mounts the installer), then run this script again."

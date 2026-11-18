@@ -7,6 +7,7 @@ import { useAuth } from '../auth'
 import SetOwnerModal from '../components/SetOwnerModal'
 import UsageBar from '../components/UsageBar'
 import { CriticalStar, HealthTag } from '../components/Health'
+import PageHeader, { HelpLabel } from '../components/PageHeader'
 import { AGENT_STATE, fmtMem, OS_LABEL, POWER } from '../format'
 
 const LinuxIcon = () => <span aria-hidden style={{ fontWeight: 700, fontSize: 11 }}>🐧</span>
@@ -19,7 +20,9 @@ export function OsIcon({ family }) {
 
 export function PowerTag({ state }) {
   const p = POWER[state] || { label: state, color: 'default' }
-  return <Tag color={p.color}>{p.label}</Tag>
+  return state === 'deleted'
+    ? <Tooltip title="Deleted from vCenter. vCentral keeps its history for reference."><Tag color={p.color}>{p.label}</Tag></Tooltip>
+    : <Tag color={p.color}>{p.label}</Tag>
 }
 
 export function OwnerCell({ owner, source }) {
@@ -30,9 +33,26 @@ export function OwnerCell({ owner, source }) {
 
 const FILTER_KEYS = ['search', 'power', 'os_family', 'owner_unknown', 'agent', 'health', 'critical', 'status', 'sort', 'order', 'page', 'page_size']
 
+const AGENT_TIP = {
+  online: 'The vCentral agent on this VM reported recently.',
+  offline: 'The agent stopped reporting (three missed reports). The VM may be asleep or cut off from the network, or the agent stopped.',
+  revoked: 'The agent was revoked: vCentral no longer accepts it.',
+}
+
 export function AgentTag({ state }) {
   const s = AGENT_STATE[state] || AGENT_STATE.none
-  return state === 'none' || !state ? <Typography.Text type="secondary">None</Typography.Text> : <Tag color={s.color}>{s.label}</Tag>
+  return state === 'none' || !state
+    ? <Tooltip title="No vCentral agent: only what vCenter knows is shown. Install it from the VM page or Onboarding."><Typography.Text type="secondary">None</Typography.Text></Tooltip>
+    : <Tooltip title={AGENT_TIP[state]}><Tag color={s.color}>{s.label}</Tag></Tooltip>
+}
+
+/** Marks the VM that runs vCenter Server itself. */
+export function VCenterTag() {
+  return (
+    <Tooltip title="This VM runs vCenter Server. See Infrastructure → vCenter for its services and health.">
+      <Link to="/infrastructure" onClick={(e) => e.stopPropagation()}><Tag color="geekblue" style={{ marginInlineEnd: 0, cursor: 'pointer' }}>vCenter</Tag></Link>
+    </Tooltip>
+  )
 }
 
 export default function VMs() {
@@ -76,11 +96,14 @@ export default function VMs() {
   const columns = [
     {
       title: 'Name', dataIndex: 'name', sorter: true, sortOrder: sortOrder('name') ?? (q.sort ? null : 'ascend'), fixed: 'left', width: 220,
-      render: (v, r) => <Space size={6}><CriticalStar critical={r.critical} /><Link to={`/vms/${r.id}`}>{v}</Link></Space>,
+      render: (v, r) => <Space size={6}><CriticalStar critical={r.critical} /><Link to={`/vms/${r.id}`}>{v}</Link>{r.role === 'vcenter' && <VCenterTag />}</Space>,
     },
-    { title: 'Health', dataIndex: 'health', width: 120, render: (v, r) => <HealthTag health={v} problems={r.problems} /> },
+    {
+      title: <HelpLabel tip="Problems vCentral found on powered-on VMs: no IP address, or the agent stopped reporting. They are Critical on VMs marked critical (also when such a VM is off or deleted), otherwise Warnings. Hover a tag for the details.">Health</HelpLabel>,
+      dataIndex: 'health', width: 120, render: (v, r) => <HealthTag health={v} problems={r.problems} />,
+    },
     { title: 'Power', dataIndex: 'power_state', width: 90, sorter: true, sortOrder: sortOrder('power_state'), render: (v) => <PowerTag state={v} /> },
-    { title: 'Agent', dataIndex: 'agent', width: 90, render: (v) => <AgentTag state={v} /> },
+    { title: <HelpLabel tip="State of the vCentral agent inside the VM. None means only vCenter's data is available.">Agent</HelpLabel>, dataIndex: 'agent', width: 100, render: (v) => <AgentTag state={v} /> },
     {
       title: 'OS', dataIndex: 'guest_os', sorter: true, sortOrder: sortOrder('guest_os'), width: 230, ellipsis: true,
       render: (v, r) => <Space size={6}><OsIcon family={r.os_family} /><span>{v || OS_LABEL[r.os_family]}</span></Space>,
@@ -95,18 +118,19 @@ export default function VMs() {
         return r.last_known_ip ? <Tooltip title="Last known IP (VM is not reporting one now)"><Typography.Text type="secondary">{r.last_known_ip}</Typography.Text></Tooltip> : '—'
       },
     },
-    { title: 'Owner', dataIndex: 'owner', sorter: true, sortOrder: sortOrder('owner'), width: 190, ellipsis: true, render: (v, r) => <OwnerCell owner={v} source={r.owner_source} /> },
-    { title: <Tooltip title="vCenter's measurement, the same source for every VM">CPU</Tooltip>, dataIndex: 'cpu_pct', sorter: true, sortOrder: sortOrder('cpu_pct'), width: 150, render: (v) => <UsageBar value={v} width={70} /> },
-    { title: <Tooltip title="vCenter active memory: memory the guest touched recently. In-guest used memory is on the VM page (agent).">Active memory</Tooltip>, dataIndex: 'mem_pct', sorter: true, sortOrder: sortOrder('mem_pct'), width: 150, render: (v) => <UsageBar value={v} width={70} /> },
-    { title: <Tooltip title="Fullest drive or mount point, as reported by VMware Tools">Fullest disk</Tooltip>, dataIndex: 'disk_used_pct_max', sorter: true, sortOrder: sortOrder('disk_used_pct_max'), width: 150, render: (v) => <UsageBar value={v} width={70} /> },
-    { title: 'Size', dataIndex: 'num_cpu', sorter: true, sortOrder: sortOrder('num_cpu'), width: 130, render: (v, r) => `${v ?? '—'} vCPU · ${fmtMem(r.memory_mb)}` },
+    { title: <HelpLabel tip="Who the VM belongs to: from the vCenter creation event, the vCenter Owner attribute, or set in vCentral. Hover a name to see where it came from.">Owner</HelpLabel>, dataIndex: 'owner', sorter: true, sortOrder: sortOrder('owner'), width: 190, ellipsis: true, render: (v, r) => <OwnerCell owner={v} source={r.owner_source} /> },
+    { title: <HelpLabel tip="vCenter's measurement, the same source for every VM">CPU</HelpLabel>, dataIndex: 'cpu_pct', sorter: true, sortOrder: sortOrder('cpu_pct'), width: 150, render: (v) => <UsageBar value={v} width={70} /> },
+    { title: <HelpLabel tip="vCenter active memory: memory the guest touched recently. In-guest used memory is on the VM page (agent).">Active memory</HelpLabel>, dataIndex: 'mem_pct', sorter: true, sortOrder: sortOrder('mem_pct'), width: 150, render: (v) => <UsageBar value={v} width={70} /> },
+    { title: <HelpLabel tip="Fullest drive or mount point, as reported by VMware Tools">Fullest disk</HelpLabel>, dataIndex: 'disk_used_pct_max', sorter: true, sortOrder: sortOrder('disk_used_pct_max'), width: 150, render: (v) => <UsageBar value={v} width={70} /> },
+    { title: <HelpLabel tip="Virtual CPUs and memory allocated to the VM in vCenter">Size</HelpLabel>, dataIndex: 'num_cpu', sorter: true, sortOrder: sortOrder('num_cpu'), width: 130, render: (v, r) => `${v ?? '—'} vCPU · ${fmtMem(r.memory_mb)}` },
     { title: 'Host', dataIndex: 'esxi_host', sorter: true, sortOrder: sortOrder('esxi_host'), width: 160, ellipsis: true },
     { title: 'Folder', dataIndex: 'folder', width: 200, ellipsis: true },
   ]
 
   return (
     <>
-      <Typography.Title level={3} style={{ marginTop: 0 }}>Virtual machines</Typography.Title>
+      <PageHeader title="Virtual machines"
+        description="Every VM vCentral reads from vCenter, with health, agent state and usage. Filters stay in the address bar, so you can bookmark or share a view." />
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space wrap>
           <Input.Search
@@ -118,9 +142,11 @@ export default function VMs() {
             onChange={(v) => update({ health: v })}
             options={[{ value: 'problem', label: 'Any problem' }, { value: 'critical', label: 'Critical' }, { value: 'warning', label: 'Warning' }]}
           />
-          <Checkbox checked={!!q.critical} onChange={(e) => update({ critical: e.target.checked ? '1' : undefined })}>
-            Critical VMs only
-          </Checkbox>
+          <Tooltip title="Only VMs marked critical (must always be up). Mark a VM critical on its page.">
+            <Checkbox checked={!!q.critical} onChange={(e) => update({ critical: e.target.checked ? '1' : undefined })}>
+              Critical VMs only
+            </Checkbox>
+          </Tooltip>
           <Select
             allowClear placeholder="Power state" style={{ width: 140 }} value={q.power}
             onChange={(v) => update({ power: v })}
@@ -136,18 +162,26 @@ export default function VMs() {
             onChange={(v) => update({ agent: v })}
             options={[{ value: 'online', label: 'Online' }, { value: 'offline', label: 'Offline' }, { value: 'none', label: 'No agent' }]}
           />
-          <Select
-            style={{ width: 150 }} value={q.status} onChange={(v) => update({ status: v === 'active' ? undefined : v })}
-            options={[{ value: 'active', label: 'Existing VMs' }, { value: 'deleted', label: 'Deleted VMs' }, { value: 'all', label: 'All' }]}
-          />
-          <Checkbox checked={!!q.owner_unknown} onChange={(e) => update({ owner_unknown: e.target.checked ? '1' : undefined })}>
-            Owner unknown
-          </Checkbox>
-          <Button icon={<DownloadOutlined />} href={api.url('/api/vms/export.csv', { ...q, page: undefined, page_size: undefined, sort: undefined, order: undefined, owner_unknown: q.owner_unknown ? 'true' : undefined, critical: q.critical ? 'true' : undefined })}>
-            Export CSV
-          </Button>
+          <Tooltip title="Deleted VMs are VMs removed from vCenter; vCentral keeps their history for reference.">
+            <Select
+              style={{ width: 150 }} value={q.status} onChange={(v) => update({ status: v === 'active' ? undefined : v })}
+              options={[{ value: 'active', label: 'Existing VMs' }, { value: 'deleted', label: 'Deleted VMs' }, { value: 'all', label: 'All' }]}
+            />
+          </Tooltip>
+          <Tooltip title="VMs with no owner yet. The Owners page suggests owners from vCenter's history.">
+            <Checkbox checked={!!q.owner_unknown} onChange={(e) => update({ owner_unknown: e.target.checked ? '1' : undefined })}>
+              Owner unknown
+            </Checkbox>
+          </Tooltip>
+          <Tooltip title="Downloads every VM that matches the current filters (all pages) as a CSV file for Excel.">
+            <Button icon={<DownloadOutlined />} href={api.url('/api/vms/export.csv', { ...q, page: undefined, page_size: undefined, sort: undefined, order: undefined, owner_unknown: q.owner_unknown ? 'true' : undefined, critical: q.critical ? 'true' : undefined })}>
+              Export CSV
+            </Button>
+          </Tooltip>
           {can('admin', 'operator') && selected.length > 0 && (
-            <Button type="primary" onClick={() => setSettingOwner(true)}>Set owner for {selected.length} selected</Button>
+            <Tooltip title="Gives all selected VMs the same owner. Owners set here are never changed automatically.">
+              <Button type="primary" onClick={() => setSettingOwner(true)}>Set owner for {selected.length} selected</Button>
+            </Tooltip>
           )}
         </Space>
       </Card>
@@ -159,6 +193,7 @@ export default function VMs() {
       <Table
         rowKey="id" size="small" columns={columns} dataSource={data.items} loading={loading} scroll={{ x: 1600 }}
         rowSelection={can('admin', 'operator') ? { selectedRowKeys: selected, onChange: setSelected, preserveSelectedRowKeys: true } : undefined}
+        locale={{ emptyText: FILTER_KEYS.some((k) => !['sort', 'order', 'page', 'page_size'].includes(k) && params.get(k)) ? 'No VMs match these filters. Clear a filter to see more.' : 'No VMs yet. They appear after the first vCenter sync.' }}
         pagination={{ current: q.page, pageSize: q.page_size, total: data.total, showSizeChanger: true, pageSizeOptions: [25, 50, 100, 200], showTotal: (t) => `${t} VMs` }}
         onChange={(pg, _f, sorter) => {
           update({

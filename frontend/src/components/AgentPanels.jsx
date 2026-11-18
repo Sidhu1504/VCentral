@@ -26,7 +26,11 @@ export function NoAgentCard({ vm, onChanged }) {
           </Typography.Text>
         }
       >
-        {canInstall && <Button type="primary" onClick={() => setInstalling(true)}>Install the agent</Button>}
+        {canInstall && (
+          <Tooltip title="Install through VMware Tools with a VM login (used once, never saved), or get a one-time command to run on the VM yourself.">
+            <Button type="primary" onClick={() => setInstalling(true)}>Install the agent</Button>
+          </Tooltip>
+        )}
         {can('admin', 'operator') && vm?.power_state !== 'poweredOn' && <Typography.Text type="secondary">Power the VM on to install the agent.</Typography.Text>}
       </Empty>
       {installing && <InstallAgentModal vm={vm} onClose={() => setInstalling(false)} onDone={onChanged} />}
@@ -58,14 +62,22 @@ export function AgentCard({ agent, onChanged }) {
       title={<Space>Agent <AgentStateTag state={agent.state} /></Space>}
       extra={can('admin', 'operator') && agent.state !== 'revoked' && (
         <Space size={4}>
-          {agent.vm_id && <Button size="small" type="primary" onClick={() => setRunning(true)}>Run</Button>}
-          <Tooltip title="Ask the agent for a fresh inventory with its next report">
-            <Button size="small" icon={<ReloadOutlined />} onClick={() => act(`/api/agents/${agent.id}/refresh-inventory`, 'Inventory requested')} />
+          {agent.vm_id && (
+            <Tooltip title="Run a script on this VM through the agent (bash as root on Linux, PowerShell as SYSTEM on Windows). The agent picks it up with its next report.">
+              <Button size="small" type="primary" onClick={() => setRunning(true)}>Run</Button>
+            </Tooltip>
+          )}
+          <Tooltip title="Refresh inventory: asks the agent to resend installed software, services, open ports and network interfaces with its next report.">
+            <Button size="small" icon={<ReloadOutlined />} aria-label="Refresh inventory" onClick={() => act(`/api/agents/${agent.id}/refresh-inventory`, 'Inventory requested')} />
           </Tooltip>
-          <Button size="small" onClick={() => setLinking(true)}>Link</Button>
+          <Tooltip title="Choose which VM this agent belongs to. Use it only when automatic matching (BIOS UUID or MAC address) picked the wrong VM or none.">
+            <Button size="small" onClick={() => setLinking(true)}>Link</Button>
+          </Tooltip>
           <Popconfirm title="Revoke this agent?" description="vCentral stops accepting its reports. Uninstall it on the VM too."
             okText="Revoke" okButtonProps={{ danger: true }} onConfirm={() => act(`/api/agents/${agent.id}/revoke`, 'Agent revoked')}>
-            <Button size="small" danger>Revoke</Button>
+            <Tooltip title="Disconnects this agent permanently: vCentral rejects its reports and it can no longer run tasks. To bring the VM back, re-install the agent with a new token.">
+              <Button size="small" danger>Revoke</Button>
+            </Tooltip>
           </Popconfirm>
         </Space>
       )}
@@ -73,7 +85,11 @@ export function AgentCard({ agent, onChanged }) {
       <Descriptions column={1} size="small">
         <Descriptions.Item label="Last report">{agent.last_seen_at ? `${fmtAgo(agent.last_seen_at)} from ${agent.last_ip}` : 'Never'}</Descriptions.Item>
         <Descriptions.Item label="Version">
-          {agent.agent_version}{agent.outdated && <Tag color="gold" style={{ marginLeft: 8 }}>update available</Tag>}
+          {agent.agent_version}{agent.outdated && (
+            <Tooltip title={agent.can_self_update ? 'A newer agent is available. Update it from the Agents page.' : 'A newer agent is available. This version cannot update itself: use Update on the Agents page for a command to run once on the VM.'}>
+              <Tag color="gold" style={{ marginLeft: 8 }}>update available</Tag>
+            </Tooltip>
+          )}
         </Descriptions.Item>
         <Descriptions.Item label="OS">{agent.os_name}</Descriptions.Item>
         {agent.kernel_version && <Descriptions.Item label="Kernel">{agent.kernel_version}</Descriptions.Item>}
@@ -84,7 +100,7 @@ export function AgentCard({ agent, onChanged }) {
         </Descriptions.Item>
         {m.load1 != null && <Descriptions.Item label="Load">{m.load1} / {m.load5} / {m.load15}</Descriptions.Item>}
         <Descriptions.Item label="Uptime">{fmtUptime(m.uptime_seconds)}{m.process_count ? ` · ${m.process_count} processes` : ''}</Descriptions.Item>
-        <Descriptions.Item label="Linked by">
+        <Descriptions.Item label={<Tooltip title="How vCentral matched this agent to its VM. Links set by hand are never changed automatically."><span style={{ borderBottom: '1px dotted currentColor', cursor: 'help' }}>Linked by</span></Tooltip>}>
           {{ bios_uuid: 'BIOS UUID', mac: 'MAC address', manual: 'Set by hand' }[agent.link_source] || '—'}
         </Descriptions.Item>
         <Descriptions.Item label="Enrolled">{fmtDate(agent.enrolled_at)} · token “{agent.enrolled_with}”</Descriptions.Item>

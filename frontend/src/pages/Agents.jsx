@@ -8,12 +8,19 @@ import { DownloadOutlined, LinkOutlined, PlusOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import InstallCommands, { buildUpgradeCommands } from '../components/InstallCommands'
+import PageHeader, { HelpLabel } from '../components/PageHeader'
 import { AGENT_STATE, fmtAgo, fmtDate } from '../format'
 import { OsIcon } from './VMs'
 
+const AGENT_STATE_TIP = {
+  online: 'The agent reported recently.',
+  offline: 'No report for three report intervals (see Settings). The VM may be off, asleep or cut off from the network, or the agent stopped.',
+  revoked: 'vCentral no longer accepts this agent. Re-install the agent with a new token to bring the VM back.',
+}
+
 export function AgentStateTag({ state }) {
   const s = AGENT_STATE[state] || { label: state, color: 'default' }
-  return <Tag color={s.color}>{s.label}</Tag>
+  return <Tooltip title={AGENT_STATE_TIP[state]}><Tag color={s.color}>{s.label}</Tag></Tooltip>
 }
 
 /** Pick a VM for an agent, or go back to automatic matching. */
@@ -180,22 +187,24 @@ function AgentsTab({ info }) {
                 message.error(e.message)
               }
             }}>
-            <Button>Update outdated agents</Button>
+            <Tooltip title="Starts one task that updates every outdated agent that can update itself. Agents keep their identity, settings and history.">
+              <Button>Update outdated agents</Button>
+            </Tooltip>
           </Popconfirm>
         )}
       </Space>
       <Table
         rowKey="id" size="small" loading={loading} dataSource={agents} scroll={{ x: 1000 }}
         pagination={{ pageSize: 50, hideOnSinglePage: true }}
-        locale={{ emptyText: 'No agents yet. Create an enrollment token and run the install command on a VM.' }}
+        locale={{ emptyText: (state !== 'all' || linked || search) ? 'No agents match these filters.' : 'No agents yet. Install one from a VM page or the Onboarding page, or create an enrollment token and run the install command on a VM.' }}
         columns={[
           { title: 'State', dataIndex: 'state', width: 100, render: (s) => <AgentStateTag state={s} /> },
           { title: 'Hostname', dataIndex: 'hostname', width: 150, ellipsis: true },
           {
             title: 'VM', dataIndex: 'vm_name', width: 170, ellipsis: true,
             render: (v, a) => (v
-              ? <Space size={4}><Link to={`/vms/${a.vm_id}`}>{v}</Link>{a.link_source === 'manual' && <Tooltip title="Linked by hand"><LinkOutlined /></Tooltip>}</Space>
-              : <Tag color="warning">Not linked</Tag>),
+              ? <Space size={4}><Link to={`/vms/${a.vm_id}`}>{v}</Link>{a.link_source === 'manual' && <Tooltip title="Linked by hand: never changed automatically"><LinkOutlined /></Tooltip>}</Space>
+              : <Tooltip title="vCentral could not match this agent to a VM by BIOS UUID or MAC address. It still reports, but its data is not shown on any VM page. Use Link VM."><Tag color="warning">Not linked</Tag></Tooltip>),
           },
           { title: 'OS', dataIndex: 'os_name', ellipsis: true, render: (v, a) => <Space size={6}><OsIcon family={a.os_family} />{v}</Space> },
           {
@@ -203,26 +212,38 @@ function AgentsTab({ info }) {
             render: (v, a) => <Space size={4}>{v}{a.outdated && <Tooltip title={a.can_self_update ? 'A newer agent is available' : 'A newer agent is available. This version cannot update itself: use Update to get the command'}><Tag color="gold">old</Tag></Tooltip>}</Space>,
           },
           {
-            title: 'Last report', dataIndex: 'last_seen_at', width: 120,
+            title: <HelpLabel tip="When the agent last sent metrics. Hover a value for the exact time and the address it came from.">Last report</HelpLabel>, dataIndex: 'last_seen_at', width: 130,
             render: (v, a) => <Tooltip title={v ? `${fmtDate(v)} from ${a.last_ip}` : null}>{v ? fmtAgo(v) : 'Never'}</Tooltip>,
           },
-          { title: 'Enrolled', dataIndex: 'enrolled_at', width: 110, render: (v, a) => <Tooltip title={`Token: ${a.enrolled_with || '—'}`}>{fmtAgo(v)}</Tooltip> },
+          { title: <HelpLabel tip="When the agent registered with vCentral. Hover a value to see which enrollment token it used.">Enrolled</HelpLabel>, dataIndex: 'enrolled_at', width: 120, render: (v, a) => <Tooltip title={`Token: ${a.enrolled_with || '—'}`}>{fmtAgo(v)}</Tooltip> },
           ...(can('admin', 'operator') ? [{
             title: '', key: 'actions', width: 270, fixed: 'right',
             render: (_, a) => (
               <Space>
-                {a.outdated && a.state !== 'revoked' && <Button size="small" type="primary" onClick={() => setUpdating(a)}>Update</Button>}
-                {a.state !== 'revoked' && <Button size="small" onClick={() => setLinking(a)}>Link VM</Button>}
+                {a.outdated && a.state !== 'revoked' && (
+                  <Tooltip title="Shows how to update this agent: automatically (version 0.4.0 and later) or with a command to run once on the VM.">
+                    <Button size="small" type="primary" onClick={() => setUpdating(a)}>Update</Button>
+                  </Tooltip>
+                )}
+                {a.state !== 'revoked' && (
+                  <Tooltip title="Choose which VM this agent belongs to. Use it only when automatic matching (BIOS UUID or MAC address) picked the wrong VM or none.">
+                    <Button size="small" onClick={() => setLinking(a)}>Link VM</Button>
+                  </Tooltip>
+                )}
                 {a.state !== 'revoked' && (
                   <Popconfirm title={`Revoke ${a.hostname}?`} description="It will stop being accepted. Uninstall it on the VM too." okText="Revoke" okButtonProps={{ danger: true }}
                     onConfirm={() => act(() => api.post(`/api/agents/${a.id}/revoke`), 'Agent revoked')}>
-                    <Button size="small" danger>Revoke</Button>
+                    <Tooltip title="Disconnects this agent permanently: vCentral rejects its reports and it can no longer run tasks. To bring the VM back, re-install the agent with a new token.">
+                      <Button size="small" danger>Revoke</Button>
+                    </Tooltip>
                   </Popconfirm>
                 )}
                 {a.state === 'revoked' && can('admin') && (
                   <Popconfirm title="Delete this agent and its history?" okText="Delete" okButtonProps={{ danger: true }}
                     onConfirm={() => act(() => api.del(`/api/agents/${a.id}`), 'Agent deleted')}>
-                    <Button size="small" danger>Delete</Button>
+                    <Tooltip title="Removes this revoked agent and its stored metrics from vCentral. Cannot be undone.">
+                      <Button size="small" danger>Delete</Button>
+                    </Tooltip>
                   </Popconfirm>
                 )}
               </Space>
@@ -311,6 +332,12 @@ function CreateTokenModal({ fingerprint, onClose, onCreated }) {
 }
 
 const TOKEN_STATE = { active: 'success', expired: 'default', 'used up': 'default', revoked: 'error' }
+const TOKEN_STATE_TIP = {
+  active: 'New machines can enroll with this token.',
+  expired: 'Past its expiry date: no new machines can enroll. Agents already enrolled keep working.',
+  'used up': 'Reached its maximum number of machines. Agents already enrolled keep working.',
+  revoked: 'Turned off by hand: no new machines can enroll. Agents already enrolled keep working.',
+}
 
 function TokensTab({ fingerprint }) {
   const { message } = App.useApp()
@@ -331,14 +358,16 @@ function TokensTab({ fingerprint }) {
 
   return (
     <>
-      <Button type="primary" icon={<PlusOutlined />} style={{ marginBottom: 16 }} onClick={() => setCreating(true)}>New token</Button>
+      <Tooltip title="Create a token that lets machines register as agents. The install command is shown once, right after you create it.">
+        <Button type="primary" icon={<PlusOutlined />} style={{ marginBottom: 16 }} onClick={() => setCreating(true)}>New token</Button>
+      </Tooltip>
       <Table rowKey="id" size="small" dataSource={tokens} pagination={{ pageSize: 50, hideOnSinglePage: true }} scroll={{ x: 900 }}
-        locale={{ emptyText: 'No tokens yet' }}
+        locale={{ emptyText: 'No tokens yet. Create one to install agents by command or to build a self-enrolling VM template.' }}
         columns={[
           { title: 'Name', dataIndex: 'name' },
-          { title: 'Token', dataIndex: 'prefix', render: (p) => <code>{p}…</code> },
-          { title: 'State', dataIndex: 'state', render: (s) => <Tag color={TOKEN_STATE[s]}>{s}</Tag> },
-          { title: 'Used', key: 'uses', render: (_, t) => `${t.uses} / ${t.max_uses ?? '∞'}` },
+          { title: <HelpLabel tip="Only the first characters are shown. vCentral stores a hash of the token, so the full token cannot be shown again.">Token</HelpLabel>, dataIndex: 'prefix', render: (p) => <code>{p}…</code> },
+          { title: 'State', dataIndex: 'state', render: (s) => <Tooltip title={TOKEN_STATE_TIP[s]}><Tag color={TOKEN_STATE[s]}>{s}</Tag></Tooltip> },
+          { title: <HelpLabel tip="Machines enrolled with this token, of the maximum allowed (∞ = unlimited).">Used</HelpLabel>, key: 'uses', render: (_, t) => `${t.uses} / ${t.max_uses ?? '∞'}` },
           { title: 'Expires', dataIndex: 'expires_at', render: (v) => (v ? fmtDate(v) : 'Never') },
           { title: 'Created by', dataIndex: 'created_by' },
           { title: 'Last used', dataIndex: 'last_used_at', render: (v) => (v ? fmtAgo(v) : '—') },
@@ -346,7 +375,9 @@ function TokensTab({ fingerprint }) {
             title: '', key: 'a', width: 90,
             render: (_, t) => t.state === 'active' && (
               <Popconfirm title="Revoke this token?" description="Agents already enrolled keep working." onConfirm={() => revoke(t)} okText="Revoke" okButtonProps={{ danger: true }}>
-                <Button size="small" danger>Revoke</Button>
+                <Tooltip title="Stops new machines from enrolling with this token. Agents already enrolled with it keep working.">
+                  <Button size="small" danger>Revoke</Button>
+                </Tooltip>
               </Popconfirm>
             ),
           },
@@ -395,18 +426,15 @@ export default function Agents() {
 
   return (
     <>
-      <Typography.Title level={3} style={{ marginTop: 0 }}>Agents</Typography.Title>
-      <Typography.Paragraph type="secondary">
-        The vCentral agent runs on each VM and reports CPU, memory, disks, network, top processes, installed software,
-        services and open ports. It only connects out to vCentral, and runs tasks only when they are signed by this vCentral.
-      </Typography.Paragraph>
+      <PageHeader title="Agents"
+        description="The vCentral agent runs on each VM and reports CPU, memory, disks, network, top processes, installed software, services and open ports. It only connects out to vCentral, and runs tasks only when they are signed by this vCentral." />
       <Card size="small">
         <Tabs
           items={[
             { key: 'agents', label: 'Agents', children: <AgentsTab info={info} /> },
             ...(can('admin', 'operator') ? [
-              { key: 'tokens', label: 'Enrollment tokens', children: <TokensTab fingerprint={info?.fingerprint} /> },
-              { key: 'downloads', label: 'Downloads', children: info ? <DownloadsTab info={info} /> : null },
+              { key: 'tokens', label: <Tooltip title="Tokens let machines register as agents: for install commands and self-enrolling VM templates.">Enrollment tokens</Tooltip>, children: <TokensTab fingerprint={info?.fingerprint} /> },
+              { key: 'downloads', label: <Tooltip title="Agent installers, for VMs that cannot download from vCentral directly.">Downloads</Tooltip>, children: info ? <DownloadsTab info={info} /> : null },
             ] : []),
           ]}
         />

@@ -11,11 +11,14 @@ from sqlalchemy.orm import Session
 
 from ..agents import agent_state
 from ..audit import audit
+from .. import signing
+from ..toolsinstall import fix_tools
 from ..vcenter import VCenterClient
 from ..config import get_settings
 from ..db import get_db, iso, utcnow
 from ..health import evaluate_health, tools_state
 from ..runtime import offline_after_seconds
+from ..state import get_state
 from ..models import VM, Agent, User, VMHistory, VMMetric, VMMetricHourly
 from ..security import require_operator, require_viewer
 from .agents_admin import agent_detail, agent_summary
@@ -46,9 +49,16 @@ def agent_states(db: Session, vm_ids) -> dict[int, str]:
     return out
 
 
-def vm_summary(vm: VM, agent: str | None = None) -> dict:
+def vcenter_ips(db: Session) -> set[str]:
+    """IPs of vCenter Server itself (stored by the sync), to label the VM that runs it."""
+    return {i["ip"] for i in get_state(db, "network_infra").get("items", []) if i.get("kind") == "vcenter"}
+
+
+def vm_summary(vm: VM, agent: str | None = None, vc_ips: set[str] | None = None) -> dict:
+    ips = set(vm.last_known_ips or []) | ({vm.primary_ip} if vm.primary_ip else set())
     return {
         "agent": agent or "none",
+        "role": "vcenter" if vc_ips and ips & vc_ips else None,
         "id": vm.id, "name": vm.name, "power_state": vm.power_state, "os_family": vm.os_family,
         "guest_os": vm.guest_os, "primary_ip": vm.primary_ip,
         "last_known_ip": (vm.last_known_ips or [None])[0], "hostname": vm.hostname,
@@ -68,7 +78,7 @@ def vm_detail(db: Session, vm: VM) -> dict:
                              .order_by((Agent.status == "active").desc(), Agent.last_seen_at.desc().nulls_last())))
     current = agents[0] if agents else None
     return {
-        **vm_summary(vm, agent_states(db, [vm.id]).get(vm.id)),
+        **vm_summary(vm, agent_states(db, [vm.id]).get(vm.id), vcenter_ips(db)),
         "agent_detail": agent_detail(current, vm.name) if current else None,
         "other_agents": [agent_summary(a, vm.name) for a in agents[1:]],
         "uuid": vm.uuid, "bios_uuid": vm.bios_uuid, "moid": vm.moid, "guest_id": vm.guest_id,
@@ -136,7 +146,8 @@ def list_vms(
     col = col.desc() if order == "desc" else col.asc()
     rows = list(db.scalars(q.order_by(col.nulls_last(), VM.id).offset((page - 1) * page_size).limit(page_size)))
     states = agent_states(db, [v.id for v in rows])
-    return {"items": [vm_summary(v, states.get(v.id)) for v in rows], "total": total, "page": page,
+    vc_ips = vcenter_ips(db)
+    return {"items": [vm_summary(v, states.get(v.id), vc_ips) for v in rows], "total": total, "page": page,
             "page_size": page_size}
 
 
@@ -249,6 +260,35 @@ def wake_vm(vm_id: int, request: Request, db: Session = Depends(get_db), user: U
     audit(db, request, user.username, "vm_wake", target=vm.name)
     db.commit()
     return {"ok": True, "message": "Key press sent. If the VM was asleep, VMware Tools and its IP come back within about a minute."}
+
+
+class ToolsFixIn(BaseModel):
+    vm_ids: list[int] = Field(..., min_length=1, max_length=500)
+
+
+@router.post("/tools/install")
+def install_tools(body: ToolsFixIn, request: Request, db: Session = Depends(get_db), user: User = Depends(require_operator)):
+    """Install, start or upgrade VMware Tools on these VMs, as far as vCenter and their agents allow (see toolsinstall.py)."""
+    vms = list(db.scalars(select(VM).where(VM.id.in_(body.vm_ids))))
+    if not vms:
+        raise HTTPException(404, "VM not found")
+    try:
+        signing.private_key()
+        signing_ok = True
+    except signing.SigningUnavailable:
+        signing_ok = False
+    client = VCenterClient(get_settings())
+    try:
+        out = fix_tools(db, client, vms, user.username, signing_ok)
+    finally:
+        client.disconnect()
+    counts = {}
+    for r in out["results"]:
+        counts[r["outcome"]] = counts.get(r["outcome"], 0) + 1
+    audit(db, request, user.username, "tools_install", target=vms[0].name if len(vms) == 1 else f"{len(vms)} VMs",
+          task_id=out["task_id"], **counts)
+    db.commit()
+    return out
 
 
 @router.get("/{vm_id}/metrics")

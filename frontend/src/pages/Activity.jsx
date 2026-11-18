@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Alert, Card, Input, Select, Space, Table, Tag, Typography } from 'antd'
+import { Alert, Card, Input, Select, Space, Table, Tag } from 'antd'
 import { api } from '../api'
 import { EVENT_KINDS, fmtDate } from '../format'
+import PageHeader from '../components/PageHeader'
 
 export default function Activity() {
   const [params, setParams] = useSearchParams()
@@ -29,8 +30,7 @@ export default function Activity() {
 
   return (
     <>
-      <Typography.Title level={3} style={{ marginTop: 0 }}>Activity</Typography.Title>
-      <Typography.Paragraph type="secondary">Changes vCentral detected in vCenter: VMs created, deleted, powered on/off, renamed, resized, or changing IP.</Typography.Paragraph>
+      <PageHeader title="Activity" description="Changes vCentral detected in vCenter: VMs created, deleted, powered on/off, renamed, resized, or changing IP." />
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space wrap>
           <Select allowClear placeholder="Event type" style={{ width: 180 }} value={kind} onChange={(v) => set('kind', v)}
@@ -41,6 +41,7 @@ export default function Activity() {
       {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
       <Table
         rowKey="id" size="small" loading={loading} dataSource={data.items}
+        locale={{ emptyText: kind || search ? 'No events match these filters.' : 'No activity yet. Changes appear after vCenter syncs.' }}
         pagination={{ current: page, pageSize: 50, total: data.total, showSizeChanger: false, onChange: (p) => set('page', p > 1 ? p : undefined) }}
         columns={[
           { title: 'When', dataIndex: 'ts', width: 170, render: fmtDate },

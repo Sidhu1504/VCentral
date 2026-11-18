@@ -134,6 +134,38 @@ The login page has **Create an account**. Accounts created there always get the 
 
 Viewers can see every VM's IPs and owners and agent inventories (software, services, open ports); they see task names and status but not scripts or output. Keep approval on unless everyone who can reach vCentral should see that. Sign-ups are limited to 5 per IP address per hour and are recorded in the audit log.
 
+## Infrastructure (vCenter and ESXi hosts)
+
+The **Infrastructure** page keeps vCenter and the hosts apart from the VM list (the VM running vCenter is tagged
+*vCenter* there).
+
+- **vCenter Server:** version, build, uptime, clock, appliance health (system, CPU load, memory, storage, swap,
+  database) and its **services**, with Start / Restart / Stop for admins. Core services (vpxd, database, proxy, SSO...)
+  ask you to type the service ID first, because restarting them takes vCenter offline for a few minutes. Every action
+  is in the audit log.
+  Service management uses the vCenter REST API and needs an SSO account allowed to administer the appliance (for
+  example a member of *SystemConfiguration.Administrators*). If vCentral's normal account is not, set
+  `VCENTRAL_APPLIANCE_USER` / `VCENTRAL_APPLIANCE_PASSWORD`; the page shows the exact error until then.
+- **ESXi hosts (monitoring only):** connection and maintenance state, ESXi version, CPU / memory use, datastores,
+  VMs, uptime, triggered alarms, hardware sensors (temperature, fans, power) and host services. Read live from vCenter,
+  refreshed every minute.
+
+## Installing VMware Tools from vCentral
+
+**Install / Start / Upgrade** next to the Tools status (Onboarding, VM page) and **Fix N powered-on VMs** on the
+VMware Tools report do the best fix available for each VM:
+
+| VM | What vCentral does |
+|---|---|
+| Tools running but outdated (VMware-managed) | vCenter upgrades Tools (Windows: reboot postponed) |
+| vCentral agent online, Linux | the agent installs open-vm-tools from the package repository and starts it |
+| vCentral agent online, Windows | the Tools installer is mounted as a CD drive, then the agent runs it silently |
+| No agent, Windows | the installer is mounted; run `setup64.exe` from that drive in the VM console |
+| No agent, Linux | nothing can run in the VM; install `open-vm-tools` over SSH / console |
+
+vCentral's vCenter account needs **Virtual machine > Interaction > Install VMware Tools**. Every action is in the
+VM's history and the audit log; agent runs appear as a task.
+
 ## Windows VMs that go to sleep
 
 A Windows VM that goes into idle sleep stops VMware Tools and the agent. vCenter then shows Tools "not running" and no IP, and the VM looks broken.
@@ -338,6 +370,7 @@ All settings are environment variables in `.env`. See [.env.example](.env.exampl
 |---|---|---|
 | `VCENTRAL_VCENTER_HOST` / `_USER` / `_PASSWORD` | – | vCenter connection |
 | `VCENTRAL_VCENTER_VERIFY_SSL` | `true` | Set `false` only for a self-signed vCenter certificate |
+| `VCENTRAL_APPLIANCE_USER` / `VCENTRAL_APPLIANCE_PASSWORD` | (vCenter account) | SSO account for starting/stopping vCenter services on the Infrastructure page |
 | `VCENTRAL_SUBNETS` | – | CIDRs shown on the IP page and scanned, comma-separated |
 | `VCENTRAL_IP_SCAN_INTERVAL_MINUTES` | `15` | Starting value for the network scan (Settings page; 0 = off) |
 | `VCENTRAL_OWNER_ATTRIBUTE` | `Owner` | vCenter custom attribute that holds the owner |

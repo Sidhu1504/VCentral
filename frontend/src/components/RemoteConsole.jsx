@@ -115,12 +115,16 @@ export default function RemoteConsole({ ticket, title, protocol, onClose }) {
         <Tag color={connected ? 'success' : ended ? 'error' : 'processing'}>{protocol.toUpperCase()} · {error ? 'Failed' : STATE[state]}</Tag>
         <div style={{ flex: 1 }} />
         <Space size={6}>
-          {protocol === 'rdp' && <Button size="small" disabled={!connected} onClick={() => keys(KEY.ctrl, KEY.alt, KEY.del)}>Ctrl+Alt+Del</Button>}
-          {protocol === 'rdp' && <Tooltip title="Windows key"><Button size="small" disabled={!connected} onClick={() => keys(KEY.win)}>Win</Button></Tooltip>}
+          {protocol === 'rdp' && (
+            <Tooltip zIndex={1200} title="Sends Ctrl+Alt+Del to the VM, e.g. to sign in or lock it. Pressing it on your own keyboard goes to your PC instead.">
+              <Button size="small" disabled={!connected} onClick={() => keys(KEY.ctrl, KEY.alt, KEY.del)}>Ctrl+Alt+Del</Button>
+            </Tooltip>
+          )}
+          {protocol === 'rdp' && <Tooltip zIndex={1200} title="Sends the Windows key to the VM"><Button size="small" disabled={!connected} onClick={() => keys(KEY.win)}>Win</Button></Tooltip>}
           <Popover trigger="click" content={clipboard} title="Clipboard">
             <Button size="small" icon={<CopyOutlined />} disabled={!connected}>Clipboard</Button>
           </Popover>
-          <Tooltip title="Full screen"><Button size="small" icon={<FullscreenOutlined />} onClick={() => holder.current.parentElement.requestFullscreen?.()} /></Tooltip>
+          <Tooltip zIndex={1200} title="Full screen"><Button size="small" icon={<FullscreenOutlined />} onClick={() => holder.current.parentElement.requestFullscreen?.()} /></Tooltip>
           <Button size="small" danger icon={<PoweroffOutlined />} onClick={onClose}>{ended ? 'Close' : 'Disconnect'}</Button>
         </Space>
       </div>

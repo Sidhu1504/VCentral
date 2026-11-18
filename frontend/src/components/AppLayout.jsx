@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { App, Button, Drawer, Dropdown, Grid, Layout, Menu, Space, Tag, Tooltip, Typography } from 'antd'
 import {
-  AuditOutlined, CloudServerOutlined, ClusterOutlined, CodeOutlined, IdcardOutlined, PlayCircleOutlined, RocketOutlined, ScheduleOutlined, DashboardOutlined, HistoryOutlined, KeyOutlined, LogoutOutlined, MenuOutlined,
+  AuditOutlined, CloudServerOutlined, HddOutlined, ClusterOutlined, CodeOutlined, IdcardOutlined, PlayCircleOutlined, RocketOutlined, ScheduleOutlined, DashboardOutlined, HistoryOutlined, KeyOutlined, LogoutOutlined, MenuOutlined,
   FileTextOutlined, MoonOutlined, SettingOutlined, SunOutlined, SyncOutlined, TeamOutlined, UserOutlined, ApartmentOutlined,
 } from '@ant-design/icons'
 import { api } from '../api'
@@ -95,6 +95,7 @@ export default function AppLayout() {
   const items = [
     { key: '/', icon: <DashboardOutlined />, label: 'Dashboard' },
     { key: '/vms', icon: <ClusterOutlined />, label: 'Virtual machines' },
+    { key: '/infrastructure', icon: <HddOutlined />, label: 'Infrastructure' },
     { key: '/network', icon: <ApartmentOutlined />, label: 'IP & subnets' },
     { key: '/agents', icon: <CloudServerOutlined />, label: 'Agents' },
     { key: '/onboarding', icon: <RocketOutlined />, label: 'Onboarding' },

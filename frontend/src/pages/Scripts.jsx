@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { App, Button, Card, Dropdown, Form, Input, InputNumber, List, Modal, Popconfirm, Radio, Space, Table, Tag, Typography } from 'antd'
+import { App, Button, Card, Dropdown, Form, Input, InputNumber, List, Modal, Popconfirm, Radio, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import { AppstoreAddOutlined, DownloadOutlined, DownOutlined, ImportOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import NewTaskModal, { codeStyle } from '../components/NewTaskModal'
+import PageHeader, { HelpLabel } from '../components/PageHeader'
 import { downloadText, findVariables, osForFile, readScriptFile, safeFileName, ScriptBox } from '../components/scriptFiles'
 import { fmtAgo } from '../format'
 
@@ -47,10 +48,10 @@ function ScriptEditor({ script, onClose, onSaved }) {
         </Form.Item>
         {vars.length > 0 && (
           <Typography.Paragraph type="secondary">
-            Asks for when run: {vars.map((v) => <Tag key={v} color="blue">{v}</Tag>)}
+            <HelpLabel tip="Each {{NAME}} in the script becomes a box to fill in when the script is run or scheduled. The value is inserted as quoted text, never as a command.">Asks for when run</HelpLabel>: {vars.map((v) => <Tag key={v} color="blue">{v}</Tag>)}
           </Typography.Paragraph>
         )}
-        <Form.Item name="timeout_seconds" label="Stop after" rules={[{ required: true }]}><InputNumber min={10} max={21600} addonAfter="seconds" /></Form.Item>
+        <Form.Item name="timeout_seconds" label="Stop after" tooltip="A run still going after this long is stopped and marked Timed out." rules={[{ required: true }]}><InputNumber min={10} max={21600} addonAfter="seconds" /></Form.Item>
       </Form>
     </Modal>
   )
@@ -173,16 +174,29 @@ export default function Scripts() {
 
   return (
     <>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }} wrap>
-        <Typography.Title level={3} style={{ margin: 0 }}>Script library</Typography.Title>
-        <Space wrap>
-          {can('admin') && <Button icon={<AppstoreAddOutlined />} onClick={() => setStarter(true)}>Starter scripts</Button>}
-          {can('admin') && <Button icon={<ImportOutlined />} onClick={() => importInput.current?.click()}>Import</Button>}
-          <Button icon={<DownloadOutlined />} disabled={!scripts.length} onClick={exportAll}>Export</Button>
-          {can('admin') && <Button icon={<UploadOutlined />} onClick={() => uploadInput.current?.click()}>Upload script</Button>}
+      <PageHeader title="Script library"
+        description="Reviewed scripts that operators can run on VMs and admins can schedule. Each script can have a Linux and a Windows version; every VM gets the one for its OS."
+        extra={<>
+          {can('admin') && (
+            <Tooltip title="Ready-made scripts (Linux and Windows) for common checks. Lets you review them first; scripts already in the library are left alone.">
+              <Button icon={<AppstoreAddOutlined />} onClick={() => setStarter(true)}>Starter scripts</Button>
+            </Tooltip>
+          )}
+          {can('admin') && (
+            <Tooltip title="Add scripts from a vCentral export file (.json), e.g. from another vCentral. You choose whether to skip or replace scripts with the same name.">
+              <Button icon={<ImportOutlined />} onClick={() => importInput.current?.click()}>Import</Button>
+            </Tooltip>
+          )}
+          <Tooltip title="Downloads the whole library as one .json file, for a backup or to import into another vCentral.">
+            <Button icon={<DownloadOutlined />} disabled={!scripts.length} onClick={exportAll}>Export</Button>
+          </Tooltip>
+          {can('admin') && (
+            <Tooltip title="Create a script from a file: .sh, .bash or .py for Linux; .ps1, .bat or .cmd for Windows. You can review it before saving.">
+              <Button icon={<UploadOutlined />} onClick={() => uploadInput.current?.click()}>Upload script</Button>
+            </Tooltip>
+          )}
           {can('admin') && <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({})}>New script</Button>}
-        </Space>
-      </Space>
+        </>} />
       <input ref={uploadInput} type="file" style={{ display: 'none' }} accept=".sh,.bash,.py,.ps1,.bat,.cmd" onChange={(e) => { uploadNew(e.target.files?.[0]); e.target.value = '' }} />
       <input ref={importInput} type="file" style={{ display: 'none' }} accept=".json,application/json" onChange={(e) => { importFile(e.target.files?.[0]); e.target.value = '' }} />
       <Card size="small">
@@ -198,21 +212,25 @@ export default function Scripts() {
             { title: 'Name', dataIndex: 'name', width: 220 },
             { title: 'Description', dataIndex: 'description', ellipsis: true, render: (d) => d?.replace(/^Starter script\. /, '') },
             { title: 'For', key: 'os', width: 140, render: (_, s) => <Space size={4}>{s.linux_script && <Tag>Linux</Tag>}{s.windows_script && <Tag>Windows</Tag>}</Space> },
-            { title: 'Asks for', dataIndex: 'variables', width: 130, render: (v) => (v?.length ? v.map((n) => <Tag key={n} color="blue">{n}</Tag>) : '—') },
-            { title: 'Timeout', dataIndex: 'timeout_seconds', width: 80, render: (v) => `${v}s` },
+            { title: <HelpLabel tip="Values the script asks for each time it is run or scheduled ({{NAME}} placeholders).">Asks for</HelpLabel>, dataIndex: 'variables', width: 140, render: (v) => (v?.length ? v.map((n) => <Tag key={n} color="blue">{n}</Tag>) : '—') },
+            { title: <HelpLabel tip="A run still going after this long is stopped and marked Timed out.">Timeout</HelpLabel>, dataIndex: 'timeout_seconds', width: 100, render: (v) => `${v}s` },
             { title: 'Updated', dataIndex: 'updated_at', width: 150, render: (v, s) => `${fmtAgo(v)} by ${s.updated_by || '—'}` },
             {
               title: '', key: 'a', width: 300,
               render: (_, s) => (
                 <Space>
-                  <Button size="small" type="primary" onClick={() => setRunning(s)}>Run</Button>
+                  <Tooltip title="Run this script now on VMs you choose. Each VM runs the version for its OS.">
+                    <Button size="small" type="primary" onClick={() => setRunning(s)}>Run</Button>
+                  </Tooltip>
                   <Dropdown menu={{ items: downloadItems(s) }} trigger={['click']}>
                     <Button size="small" icon={<DownloadOutlined />}>Download <DownOutlined /></Button>
                   </Dropdown>
                   {can('admin') && <Button size="small" onClick={() => setEditing(s)}>Edit</Button>}
                   {can('admin') && (
                     <Popconfirm title={`Delete ${s.name}?`} description="Its schedules are deleted too." okText="Delete" okButtonProps={{ danger: true }} onConfirm={() => remove(s)}>
-                      <Button size="small" danger>Delete</Button>
+                      <Tooltip title="Removes the script and its schedules. Past tasks keep their own copy of the script and output.">
+                        <Button size="small" danger>Delete</Button>
+                      </Tooltip>
                     </Popconfirm>
                   )}
                 </Space>

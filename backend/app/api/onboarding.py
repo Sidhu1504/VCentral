@@ -124,7 +124,7 @@ def onboarding(db: Session = Depends(get_db), _: User = Depends(require_viewer))
         "last_digest": get_state(db, "onboarding_digest").get("sent_at"),
         "items": [{
             "id": v.id, "name": v.name, "os_family": v.os_family, "guest_os": v.guest_os, "primary_ip": v.primary_ip,
-            "tools_status": v.tools_status, "tools": tools_state(v), "power_state": v.power_state, "owner": v.owner, "critical": v.critical,
+            "tools_status": v.tools_status, "tools_version_status": v.tools_version_status, "tools": tools_state(v), "power_state": v.power_state, "owner": v.owner, "critical": v.critical,
             "unmanaged_since": iso(v.unmanaged_since),
             "overdue": bool(v.unmanaged_since and now - v.unmanaged_since >= overdue),
             "last_push": job_out(jobs[v.id]) if v.id in jobs else None,

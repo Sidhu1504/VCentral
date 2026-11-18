@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import func, select
 
-from .api import (activity, agent_api, agents_admin, auth, dashboard, network, onboarding, owners_api, remote_api, reports_api, system,
+from .api import (activity, agent_api, agents_admin, auth, dashboard, infra_api, network, onboarding, owners_api, remote_api, reports_api, system,
                   tasks_api, users, vms)
 from .config import get_settings
 from .db import SessionLocal, init_db
@@ -46,7 +46,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="vCentral", version="0.6.1", lifespan=lifespan,
+app = FastAPI(title="vCentral", version="0.7.0", lifespan=lifespan,
               docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None)
 
 
@@ -74,7 +74,7 @@ async def csrf_and_headers(request: Request, call_next):
 
 for r in (auth.router, dashboard.router, vms.router, network.router, activity.router, users.router,
           system.router, agent_api.router, tasks_api.router, agents_admin.router, onboarding.router,
-          owners_api.router, remote_api.router, reports_api.router):
+          owners_api.router, remote_api.router, reports_api.router, infra_api.router):
     app.include_router(r)
 
 

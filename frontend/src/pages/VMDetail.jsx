@@ -14,7 +14,7 @@ import UsageBar from '../components/UsageBar'
 import { AgentCard, AgentDisks, InventoryCard, NoAgentCard, RecentTasks, TopProcesses } from '../components/AgentPanels'
 import { HealthTag, ProblemAlerts } from '../components/Health'
 import { EVENT_KINDS, fmtAgo, fmtDate, fmtGB, fmtMem, fmtRate, fmtUptime } from '../format'
-import { AgentTag, OsIcon, OwnerCell, PowerTag } from './VMs'
+import { AgentTag, OsIcon, OwnerCell, PowerTag, VCenterTag } from './VMs'
 
 const pct = (v) => (v === null || v === undefined ? '—' : `${Math.round(v)}%`)
 const rate = (v) => (v === null || v === undefined ? '—' : fmtRate(v))
@@ -85,7 +85,11 @@ function MetricsCard({ vmId, agent }) {
       title="Resource usage"
       extra={
         <Space wrap size={8}>
-          {agent && <Segmented size="small" value={source} onChange={setSource} options={[{ value: 'agent', label: 'Agent' }, { value: 'vcenter', label: 'vCenter' }]} />}
+          {agent && (
+            <Tooltip title="Agent: the guest OS's own figures, plus network and disk I/O. vCenter: the hypervisor's view, available for every VM.">
+              <Segmented size="small" value={source} onChange={setSource} options={[{ value: 'agent', label: 'Agent' }, { value: 'vcenter', label: 'vCenter' }]} />
+            </Tooltip>
+          )}
           <Segmented size="small" value={range} onChange={setRange} options={['1h', '6h', '24h', '7d', '30d', '90d']} />
         </Space>
       }
@@ -130,7 +134,11 @@ function OwnerNotesCard({ vm, onSaved }) {
   return (
     <Card
       size="small" title="Owner & notes"
-      extra={can('admin', 'operator') && !editing && <Button size="small" icon={<EditOutlined />} onClick={() => setEditing(true)}>Edit</Button>}
+      extra={can('admin', 'operator') && !editing && (
+        <Tooltip title="Set the owner by hand (never changed automatically) and keep notes about this VM. The notes stay in vCentral; vCenter is not changed.">
+          <Button size="small" icon={<EditOutlined />} onClick={() => setEditing(true)}>Edit</Button>
+        </Tooltip>
+      )}
     >
       {editing ? (
         <Form form={form} layout="vertical" initialValues={{ owner: vm.owner_source === 'manual' ? vm.owner : '', notes: vm.notes }} onFinish={save}>
@@ -161,7 +169,7 @@ function CriticalSwitch({ vm, onSaved }) {
   const { can } = useAuth()
   const { message } = App.useApp()
   const [busy, setBusy] = useState(false)
-  if (!can('admin', 'operator')) return vm.critical ? <Tag color="volcano">Critical VM</Tag> : null
+  if (!can('admin', 'operator')) return vm.critical ? <Tooltip title="Critical VMs must always be up: powered off, deleted, no IP or agent offline is raised as Critical"><Tag color="volcano">Critical VM</Tag></Tooltip> : null
   const toggle = async (critical) => {
     setBusy(true)
     try {
@@ -175,7 +183,7 @@ function CriticalSwitch({ vm, onSaved }) {
     }
   }
   return (
-    <Tooltip title="Critical VMs must always be up: powered off, deleted, no IP or agent offline is raised as Critical">
+    <Tooltip title="Critical VMs must always be up: powered off, deleted, no IP or agent offline is raised as Critical instead of Warning. Turn off for VMs that may be down.">
       <Space size={6}>
         <Switch size="small" checked={vm.critical} loading={busy} onChange={toggle} aria-label="Critical VM" />
         <Typography.Text>Critical VM</Typography.Text>
@@ -216,12 +224,15 @@ export default function VMDetail() {
       <Breadcrumb items={[{ title: <Link to="/vms">Virtual machines</Link> }, { title: vm.name }]} style={{ marginBottom: 8 }} />
       <Space align="center" wrap style={{ marginBottom: 16 }}>
         <Typography.Title level={3} style={{ margin: 0 }}>{vm.name}</Typography.Title>
+        {vm.role === 'vcenter' && <VCenterTag />}
         <HealthTag health={vm.health} problems={vm.problems} showOk={vm.power_state === 'poweredOn'} />
         <PowerTag state={vm.power_state} />
-        <Tooltip title="vCentral agent"><span><AgentTag state={vm.agent} /></span></Tooltip>
+        <AgentTag state={vm.agent} />
         <CriticalSwitch vm={vm} onSaved={load} />
         {can('admin', 'operator') && !vm.is_deleted && (
-          <Button type="primary" icon={<DesktopOutlined />} onClick={() => setConnecting(true)}>Connect (SSH / RDP)</Button>
+          <Tooltip title="Opens an SSH (Linux) or Remote Desktop (Windows) session to this VM in your browser, through the vCentral server. You type the VM login; it is not saved, and the session is recorded in the audit log.">
+            <Button type="primary" icon={<DesktopOutlined />} onClick={() => setConnecting(true)}>Connect (SSH / RDP)</Button>
+          </Tooltip>
         )}
       </Space>
       {connecting && <ConnectModal vm={vm} onClose={() => setConnecting(false)} />}
@@ -250,13 +261,13 @@ export default function VMDetail() {
               <Descriptions.Item label={<SourceLabel text="Active memory (vCenter)" tip={'Memory the guest touched recently, estimated by the hypervisor. It is not the same as "used" memory inside the OS (shown on the agent card, same as `free` / Task Manager) and can be higher or lower.'} />}>
                 <UsageBar value={vm.mem_pct} width={70} />
               </Descriptions.Item>
-              <Descriptions.Item label="VMware Tools"><ToolsCell vm={vm} onWoken={load} /></Descriptions.Item>
+              <Descriptions.Item label={<SourceLabel text="VMware Tools" tip="VMware's guest service. vCenter needs it to see the VM's IP addresses, hostname and disks. Hover the state for details." />}><ToolsCell vm={vm} onWoken={load} /></Descriptions.Item>
               <Descriptions.Item label="ESXi host">{vm.esxi_host || '—'}</Descriptions.Item>
               <Descriptions.Item label="Cluster">{vm.cluster || '—'}</Descriptions.Item>
               <Descriptions.Item label="Folder">{vm.folder || '—'}</Descriptions.Item>
               <Descriptions.Item label="Datastores">{vm.datastores?.join(', ') || '—'}</Descriptions.Item>
               <Descriptions.Item label="Created in vCenter">{fmtDate(vm.vcenter_created_at)}</Descriptions.Item>
-              <Descriptions.Item label="First seen">{fmtDate(vm.first_seen_at)}</Descriptions.Item>
+              <Descriptions.Item label={<SourceLabel text="First seen" tip="When vCentral first found this VM in vCenter." />}>{fmtDate(vm.first_seen_at)}</Descriptions.Item>
             </Descriptions>
           </Card>
           <div style={{ height: 16 }} />
@@ -293,7 +304,7 @@ export default function VMDetail() {
           <Card size="small" title="Network">
             <Descriptions column={1} size="small">
               <Descriptions.Item label="Current IPs">{vm.ip_addresses?.join(', ') || '—'}</Descriptions.Item>
-              <Descriptions.Item label="Last known IPs">{vm.last_known_ips?.join(', ') || '—'}</Descriptions.Item>
+              <Descriptions.Item label={<SourceLabel text="Last known IPs" tip="Addresses this VM reported before. While the VM is powered off, the IP & subnets page still shows them as taken." />}>{vm.last_known_ips?.join(', ') || '—'}</Descriptions.Item>
               <Descriptions.Item label="MAC addresses">{vm.mac_addresses?.join(', ') || '—'}</Descriptions.Item>
             </Descriptions>
           </Card>
@@ -309,7 +320,7 @@ export default function VMDetail() {
           )}
           <div style={{ height: 16 }} />
           <Card size="small" title="History">
-            {history.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} /> : (
+            {history.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No changes recorded yet. Power, IP, owner and size changes appear here." /> : (
               <Timeline
                 items={history.slice(0, 50).map((h) => ({
                   color: EVENT_KINDS[h.kind]?.color === 'red' ? 'red' : 'gray',

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Alert, Checkbox, Input, Radio, Select, Space, Typography } from 'antd'
+import { Alert, Checkbox, Input, Radio, Select, Space, Tooltip, Typography } from 'antd'
 import { api } from '../api'
 
 /** Choose which VMs a task runs on: specific VMs, or a filter (resolved when the task starts). */
@@ -30,7 +30,9 @@ export function TargetPicker({ value, onChange, allowVms = true }) {
           <Input allowClear placeholder="Name or folder contains" style={{ width: 210 }} value={value.search || ''}
             onChange={(e) => onChange({ ...value, search: e.target.value })} />
           <Checkbox checked={!!value.critical} onChange={(e) => onChange({ ...value, critical: e.target.checked })}>Critical VMs only</Checkbox>
-          <Checkbox checked={!!value.only_online} onChange={(e) => onChange({ ...value, only_online: e.target.checked })}>Online agents only</Checkbox>
+          <Tooltip title="Leave out VMs whose agent is offline when the task starts. Otherwise they run it if they come back before it expires.">
+            <Checkbox checked={!!value.only_online} onChange={(e) => onChange({ ...value, only_online: e.target.checked })}>Online agents only</Checkbox>
+          </Tooltip>
         </Space>
       )}
     </Space>

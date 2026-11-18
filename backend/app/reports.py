@@ -243,7 +243,7 @@ def tools(db: Session, days: int) -> dict:
                     {"label": "Installed, not running", "value": counts["installed, not running"]},
                     {"label": "Outdated", "value": counts["outdated"]},
                     {"label": "OK", "value": counts["ok"]}],
-        "note": "VMs with an online agent can be fixed from vCentral: run the 'Install or start VMware Tools' starter script on them. "
+        "note": "Fix VMs from here with the Fix button: vCenter upgrades outdated Tools, agents install or start Tools, and Windows VMs without an agent get the installer mounted. "
                 "Powered-off VMs are only listed when Tools is not installed or outdated.",
     }
 

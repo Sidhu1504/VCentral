@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Alert, Card, Input, Space, Table, Tag, Typography } from 'antd'
+import { Alert, Card, Input, Space, Table, Tag } from 'antd'
 import { api } from '../api'
 import { fmtDate } from '../format'
+import PageHeader from '../components/PageHeader'
 
 export default function Audit() {
   const [data, setData] = useState({ items: [], total: 0 })
@@ -18,8 +19,7 @@ export default function Audit() {
 
   return (
     <>
-      <Typography.Title level={3} style={{ marginTop: 0 }}>Audit log</Typography.Title>
-      <Typography.Paragraph type="secondary">Every sign-in and every change made through vCentral.</Typography.Paragraph>
+      <PageHeader title="Audit log" description="Every sign-in and every change made through vCentral: who did what, when, and from which address." />
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space wrap>
           <Input.Search allowClear placeholder="Username (exact)" style={{ width: 200 }} onSearch={(v) => setFilters((f) => ({ ...f, username: v || undefined, page: 1 }))} />
@@ -29,6 +29,7 @@ export default function Audit() {
       {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
       <Table
         rowKey="id" size="small" loading={loading} dataSource={data.items} scroll={{ x: 900 }}
+        locale={{ emptyText: filters.username || filters.action ? 'No entries match. The username filter needs the exact username.' : 'No entries yet.' }}
         pagination={{ current: filters.page, pageSize: 50, total: data.total, showSizeChanger: false, onChange: (p) => setFilters((f) => ({ ...f, page: p })) }}
         columns={[
           { title: 'When', dataIndex: 'ts', width: 170, render: fmtDate },

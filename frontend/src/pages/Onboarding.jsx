@@ -8,6 +8,7 @@ import { useAuth } from '../auth'
 import InstallAgentModal from '../components/InstallAgentModal'
 import { CriticalStar } from '../components/Health'
 import { fmtAgo, fmtDate, STATUS } from '../format'
+import PageHeader, { HelpLabel } from '../components/PageHeader'
 import { OsIcon } from './VMs'
 
 const JOB = { succeeded: ['success', 'Installed'], failed: ['error', 'Install failed'], running: ['processing', 'Installing'], queued: ['processing', 'Queued'] }
@@ -24,7 +25,7 @@ function Queue({ data, reload }) {
           { title: 'Owner', dataIndex: 'owner', width: 220, ellipsis: true, render: (v) => v || <Tag color="warning">Unknown</Tag> },
           { title: 'IP address', dataIndex: 'primary_ip', width: 140, render: (v) => v || '—' },
           {
-            title: 'Without agent', dataIndex: 'unmanaged_since', width: 150,
+            title: <HelpLabel tip="How long the VM has been powered on without the agent. Overdue VMs are past the limit set in Settings.">Without agent</HelpLabel>, dataIndex: 'unmanaged_since', width: 160,
             render: (v, r) => <Tooltip title={fmtDate(v)}><span style={r.overdue ? { color: STATUS.critical, fontWeight: 600 } : null}>{v ? fmtAgo(v).replace(' ago', '') : '—'}{r.overdue && ' (overdue)'}</span></Tooltip>,
           },
           {
@@ -32,12 +33,16 @@ function Queue({ data, reload }) {
             render: (_, r) => <ToolsCell vm={r} onWoken={reload} />,
           },
           {
-            title: 'Last install', dataIndex: 'last_push', width: 150,
+            title: <HelpLabel tip="Result of the last install through VMware Tools. Hover it for the error or who started it.">Last install</HelpLabel>, dataIndex: 'last_push', width: 150,
             render: (j) => j && <Tooltip title={j.error || `${fmtDate(j.created_at)} by ${j.requested_by}`}><Tag color={JOB[j.status][0]}>{JOB[j.status][1]}</Tag></Tooltip>,
           },
           ...(can('admin', 'operator') ? [{
             title: '', key: 'a', width: 130, fixed: 'right',
-            render: (_, r) => <Button size="small" type="primary" onClick={() => setInstalling(r)}>Install agent</Button>,
+            render: (_, r) => (
+              <Tooltip title="Install through VMware Tools with a VM login (used once, never saved), or get a one-time command to run on the VM.">
+                <Button size="small" type="primary" onClick={() => setInstalling(r)}>Install agent</Button>
+              </Tooltip>
+            ),
           }] : []),
         ]} />
       {installing && <InstallAgentModal vm={installing} onClose={() => { setInstalling(null); reload() }} onDone={reload} />}
@@ -89,14 +94,13 @@ export default function Onboarding() {
   }
   return (
     <>
-      <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
-        <Typography.Title level={3} style={{ marginTop: 0 }}>Onboarding</Typography.Title>
-        {can('admin', 'operator') && <Button icon={<SendOutlined />} onClick={sendDigest}>Send digest now</Button>}
-      </Space>
-      <Typography.Paragraph type="secondary">
-        Powered-on VMs without the agent. Install it through VMware Tools with the VM's root, sudo-capable user or Administrator login (used
-        once, never saved), or with a one-time command.
-      </Typography.Paragraph>
+      <PageHeader title="Onboarding"
+        description="Powered-on VMs without the agent. Install it through VMware Tools with the VM's root, sudo-capable user or Administrator login (used once, never saved), or with a one-time command."
+        extra={can('admin', 'operator') && (
+          <Tooltip title="Sends the list of powered-on VMs without the agent to the admin team now (email and/or Google Chat), including brand-new VMs. Nothing is sent to VM owners.">
+            <Button icon={<SendOutlined />} onClick={sendDigest}>Send digest now</Button>
+          </Tooltip>
+        )} />
       {(!data.policy.enabled || (!data.channels.email && !data.channels.chat)) && (
         <Alert type="info" showIcon style={{ marginBottom: 12 }}
           message={!data.policy.enabled ? 'The scheduled digest to the admin team is off.' : 'No admin emails or Google Chat configured, so the digest cannot be sent.'}
@@ -109,14 +113,14 @@ export default function Onboarding() {
           </Card>
         </Col>
         <Col xs={12} md={4}><Card size="small"><Statistic title="Without agent" value={s.unmanaged} /></Card></Col>
-        <Col xs={12} md={4}><Card size="small"><Statistic title={`Overdue (> ${data.policy.overdue_after_days} d)`} value={s.overdue} valueStyle={s.overdue ? { color: STATUS.critical } : null} /></Card></Col>
-        <Col xs={12} md={4}><Card size="small"><Statistic title="Installable via Tools" value={s.tools_running} /></Card></Col>
+        <Col xs={12} md={4}><Card size="small"><Statistic title={<HelpLabel tip="Without the agent for longer than the limit set in Settings → Onboarding digest.">{`Overdue (> ${data.policy.overdue_after_days} d)`}</HelpLabel>} value={s.overdue} valueStyle={s.overdue ? { color: STATUS.critical } : null} /></Card></Col>
+        <Col xs={12} md={4}><Card size="small"><Statistic title={<HelpLabel tip="VMs without the agent whose VMware Tools is running, so the agent can be installed through it with a VM login.">Installable via Tools</HelpLabel>} value={s.tools_running} /></Card></Col>
         <Col xs={12} md={4}><Card size="small"><Statistic title="Unknown owner" value={s.no_owner} /></Card></Col>
       </Row>
       <Card size="small" extra={data.last_digest && <Typography.Text type="secondary">Last digest {fmtAgo(data.last_digest)}</Typography.Text>}>
         <Tabs items={[
           { key: 'queue', label: `Without agent (${s.unmanaged})`, children: <Queue data={data} reload={load} /> },
-          ...(can('admin', 'operator') ? [{ key: 'messages', label: 'Messages sent', children: <Messages /> }] : []),
+          ...(can('admin', 'operator') ? [{ key: 'messages', label: <Tooltip title="Digests and test messages vCentral sent to the admin team, with the result.">Messages sent</Tooltip>, children: <Messages /> }] : []),
         ]} />
       </Card>
     </>

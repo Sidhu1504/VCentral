@@ -7,6 +7,9 @@ import {
 } from '@ant-design/icons'
 import { api } from '../api'
 import { fmtDate } from '../format'
+import { useAuth } from '../auth'
+import PageHeader from '../components/PageHeader'
+import { InstallToolsButton } from '../components/Tools'
 import './reports.css'
 
 const ICONS = {
@@ -40,6 +43,7 @@ function sorter(col) {
 
 function ReportView({ meta, periods, days, setDays, onBack }) {
   const { message } = App.useApp()
+  const { can } = useAuth()
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
   const [search, setSearch] = useState('')
@@ -50,6 +54,8 @@ function ReportView({ meta, periods, days, setDays, onBack }) {
     setError(null)
     api.get(`/api/reports/${meta.key}`, { days }).then(setData, (e) => setError(e.message))
   }, [meta.key, days])
+  // Refresh in place (keeps the page, and any open result dialog, on screen).
+  const reload = () => api.get(`/api/reports/${meta.key}`, { days }).then(setData, () => {})
 
   useEffect(() => {
     if (!printing) return
@@ -65,6 +71,8 @@ function ReportView({ meta, periods, days, setDays, onBack }) {
     if (!q) return data.rows
     return data.rows.filter((r) => data.columns.some((c) => String(Array.isArray(r[c.key]) ? r[c.key].join(' ') : r[c.key] ?? '').toLowerCase().includes(q)))
   }, [data, search])
+
+  const toolsTargets = useMemo(() => rows.filter((r) => r.vm_id && r.power === 'poweredOn').map((r) => r.vm_id), [rows])
 
   const download = () => {
     window.location.href = api.url(`/api/reports/${meta.key}/export.csv`, { days })
@@ -84,9 +92,22 @@ function ReportView({ meta, periods, days, setDays, onBack }) {
           </Typography.Text>
         </div>
         <Space wrap className="no-print">
-          {meta.periodic && <Segmented value={days} onChange={setDays} options={periods.map((p) => ({ value: p, label: `${p} days` }))} />}
-          <Button icon={<PrinterOutlined />} disabled={!data} onClick={() => setPrinting(true)}>Print / PDF</Button>
-          <Button type="primary" icon={<DownloadOutlined />} disabled={!data} onClick={download}>Download CSV</Button>
+          {meta.periodic && (
+            <Tooltip title="The period this report covers, counting back from now.">
+              <Segmented value={days} onChange={setDays} options={periods.map((p) => ({ value: p, label: `${p} days` }))} />
+            </Tooltip>
+          )}
+          <Tooltip title="Opens your browser's print dialog with all rows that match the filter. Choose “Save as PDF” there to get a file.">
+            <Button icon={<PrinterOutlined />} disabled={!data} onClick={() => setPrinting(true)}>Print / PDF</Button>
+          </Tooltip>
+          <Tooltip title="Downloads every row of this report as a CSV file for Excel. The row filter is not applied.">
+            <Button type="primary" icon={<DownloadOutlined />} disabled={!data} onClick={download}>Download CSV</Button>
+          </Tooltip>
+          {meta.key === 'tools' && can('admin', 'operator') && data && (
+            <Tooltip title="Fixes the powered-on VMs listed below (the filter applies). Each VM gets the best available fix: vCenter upgrade, the agent, or a mounted installer.">
+              <span><InstallToolsButton size="middle" label={`Fix ${toolsTargets.length} powered-on VMs`} vmIds={toolsTargets} onDone={reload} /></span>
+            </Tooltip>
+          )}
         </Space>
       </Space>
       {error && <Alert type="error" message={error} showIcon style={{ marginTop: 16 }} />}
@@ -140,11 +161,8 @@ export default function Reports() {
 
   return (
     <>
-      <Typography.Title level={3} style={{ marginTop: 0 }}>Reports</Typography.Title>
-      <Typography.Paragraph type="secondary">
-        Open a report to see it here, filter and sort it, then download it as CSV (Excel) or print it / save it as PDF.
-        Reports are built from live data each time you open them.
-      </Typography.Paragraph>
+      <PageHeader title="Reports"
+        description="Open a report to see it here, filter and sort it, then download it as CSV (Excel) or print it / save it as PDF. Reports are built from live data each time you open them." />
       <Row gutter={[16, 16]}>
         {list.reports.map((r) => (
           <Col key={r.key} xs={24} sm={12} xl={8}>
@@ -153,7 +171,7 @@ export default function Reports() {
                 <span className="report-icon">{ICONS[r.icon]}</span>
                 <div>
                   <Typography.Text strong style={{ fontSize: 15 }}>{r.title}</Typography.Text>
-                  {r.periodic && <Tag style={{ marginLeft: 8 }}>7 / 30 / 90 days</Tag>}
+                  {r.periodic && <Tooltip title="Covers a period you choose when you open it."><Tag style={{ marginLeft: 8 }}>{list.periods.join(' / ')} days</Tag></Tooltip>}
                   <Typography.Paragraph type="secondary" style={{ margin: '4px 0 0' }}>{r.description}</Typography.Paragraph>
                 </div>
               </Space>

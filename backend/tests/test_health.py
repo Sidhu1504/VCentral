@@ -181,3 +181,45 @@ def test_tools_state_and_wake(setup, monkeypatch):
     r = client.post(f"/api/vms/{target_id}/wake", headers=H)
     assert r.status_code == 200 and pressed == [target_uuid]
     assert client.get(f"/api/vms/{target_id}/history").json()[0]["kind"] == "wake"
+
+
+def test_install_tools(setup, monkeypatch):
+    client, _ = setup
+    from app.models import Task, TaskRun
+    from app.vcenter import VCenterClient
+    calls = []
+    monkeypatch.setattr(VCenterClient, "mount_tools_installer", lambda self, uuid: calls.append(("mount", uuid)) or True)
+    monkeypatch.setattr(VCenterClient, "upgrade_tools", lambda self, uuid: calls.append(("upgrade", uuid)))
+    monkeypatch.setattr(VCenterClient, "disconnect", lambda self: None)
+    with SessionLocal() as db:
+        web, dbv, app_ = (db.query(VM).filter_by(name=n).one() for n in ("web01", "db01", "app01"))
+        web.os_family, web.tools_status, web.tools_version_status = "windows", "guestToolsNotRunning", "guestToolsNotInstalled"
+        dbv.os_family, dbv.tools_status, dbv.tools_version_status = "linux", "guestToolsRunning", "guestToolsNeedUpgrade"
+        db.add(Agent(agent_uuid="w", secret_hash="h", vm_id=web.id, status="active", os_family="windows", ips=[], macs=[],
+                     metrics={}, top_processes={}, inventory={}, last_seen_at=utcnow()))
+        db.commit()
+        ids = {v.name: (v.id, v.uuid) for v in (web, dbv, app_)}
+    r = client.post("/api/vms/tools/install", headers=H, json={"vm_ids": [i for i, _ in ids.values()]})
+    assert r.status_code == 200, r.text
+    out = {x["name"]: x for x in r.json()["results"]}
+    assert out["web01"]["outcome"] == "started" and "mounted" in out["web01"]["message"]  # Windows + agent: mount, then script
+    assert out["db01"]["outcome"] == "started" and "upgrading" in out["db01"]["message"]  # vCenter Tools upgrade
+    assert out["app01"]["outcome"] == "skipped"  # powered off
+    assert sorted(calls) == sorted([("upgrade", ids["db01"][1]), ("mount", ids["web01"][1])])
+    with SessionLocal() as db:
+        task = db.get(Task, r.json()["task_id"])
+        runs = db.query(TaskRun).filter_by(task_id=task.id).all()
+        assert [x.vm_name for x in runs] == ["web01"] and runs[0].status == "pending"
+        assert "setup64.exe" in task.windows_script
+
+    # Without an agent: Windows gets the installer mounted and manual instructions; Linux gets the package command.
+    with SessionLocal() as db:
+        db.query(TaskRun).delete(); db.query(Agent).delete()
+        dbv = db.query(VM).filter_by(name="db01").one()
+        dbv.tools_status, dbv.tools_version_status = "guestToolsNotRunning", "guestToolsNotInstalled"
+        db.commit()
+    r = client.post("/api/vms/tools/install", headers=H, json={"vm_ids": [ids["web01"][0], ids["db01"][0]]}).json()
+    out = {x["name"]: x for x in r["results"]}
+    assert r["task_id"] is None
+    assert out["web01"]["outcome"] == "manual" and "setup64.exe" in out["web01"]["message"]
+    assert out["db01"]["outcome"] == "manual" and "open-vm-tools" in out["db01"]["message"]

@@ -6,6 +6,7 @@ import { api } from '../api'
 import { useAuth } from '../auth'
 import { describeTargets, TargetPicker } from '../components/TargetPicker'
 import { VariableInputs } from '../components/scriptFiles'
+import PageHeader, { HelpLabel } from '../components/PageHeader'
 import { fmtAgo, fmtDate } from '../format'
 
 const PRESETS = [
@@ -85,30 +86,39 @@ export default function Schedules() {
 
   return (
     <>
-      <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
-        <Typography.Title level={3} style={{ marginTop: 0 }}>Schedules</Typography.Title>
-        {can('admin') && <Button type="primary" icon={<PlusOutlined />} disabled={!scripts.length} onClick={() => setEditing({})}>New schedule</Button>}
-      </Space>
-      <Typography.Paragraph type="secondary">Run library scripts automatically. Each run appears under Tasks.</Typography.Paragraph>
+      <PageHeader title="Schedules"
+        description="Run library scripts automatically on a timetable (cron, in UTC). Each run appears under Tasks."
+        extra={can('admin') && (
+          <Tooltip title={scripts.length ? null : 'Add a script to the library first'}>
+            <Button type="primary" icon={<PlusOutlined />} disabled={!scripts.length} onClick={() => setEditing({})}>New schedule</Button>
+          </Tooltip>
+        )} />
       <Card size="small">
         <Table rowKey="id" size="small" dataSource={rows} pagination={false} scroll={{ x: 900 }}
-          locale={{ emptyText: scripts.length ? 'No schedules yet' : 'Add a script to the library first' }}
+          locale={{ emptyText: scripts.length ? 'No schedules yet. Use New schedule to run a library script on a timetable.' : 'Add a script to the library first (Script library), then schedule it here.' }}
           columns={[
-            { title: 'On', dataIndex: 'enabled', width: 70, render: (v, s) => <Switch size="small" checked={v} disabled={!can('admin')} onChange={(c) => toggle(s, c)} /> },
+            {
+              title: <HelpLabel tip="Turn off to pause the schedule without deleting it. Run now still works while paused.">On</HelpLabel>, dataIndex: 'enabled', width: 80,
+              render: (v, s) => <Tooltip title={v ? 'Running on schedule: click to pause' : 'Paused: click to resume'}><Switch size="small" checked={v} disabled={!can('admin')} onChange={(c) => toggle(s, c)} /></Tooltip>,
+            },
             { title: 'Name', dataIndex: 'name', width: 200 },
             { title: 'Script', dataIndex: 'script_name', width: 180 },
-            { title: 'When (UTC)', dataIndex: 'cron', width: 130, render: (c) => <code>{c}</code> },
-            { title: 'Run on', dataIndex: 'targets', ellipsis: true, render: describeTargets },
+            { title: <HelpLabel tip="Cron: minute hour day-of-month month day-of-week, in UTC (India is UTC+5:30). Next run shows it in your local time.">When (UTC)</HelpLabel>, dataIndex: 'cron', width: 140, render: (c) => <code>{c}</code> },
+            { title: <HelpLabel tip="Filters are applied each time the schedule runs, so new matching VMs are included automatically.">Run on</HelpLabel>, dataIndex: 'targets', ellipsis: true, render: describeTargets },
             { title: 'Next run', dataIndex: 'next_run_at', width: 160, render: (v, s) => (s.enabled ? fmtDate(v) : 'Paused') },
             { title: 'Last run', dataIndex: 'last_run_at', width: 130, render: (v, s) => (v ? <Tooltip title={fmtDate(v)}>{s.last_task_id ? <Link to={`/tasks/${s.last_task_id}`}>{fmtAgo(v)}</Link> : fmtAgo(v)}</Tooltip> : '—') },
             {
               title: '', key: 'a', width: 230,
               render: (_, s) => (
                 <Space>
-                  {can('admin', 'operator') && <Button size="small" onClick={() => act(() => api.post(`/api/schedules/${s.id}/run`), 'Started')}>Run now</Button>}
+                  {can('admin', 'operator') && (
+                    <Tooltip title="Starts one run immediately with the saved values and targets. The timetable is not changed.">
+                      <Button size="small" onClick={() => act(() => api.post(`/api/schedules/${s.id}/run`), 'Started')}>Run now</Button>
+                    </Tooltip>
+                  )}
                   {can('admin') && <Button size="small" onClick={() => setEditing(s)}>Edit</Button>}
                   {can('admin') && (
-                    <Popconfirm title={`Delete ${s.name}?`} okText="Delete" okButtonProps={{ danger: true }} onConfirm={() => act(() => api.del(`/api/schedules/${s.id}`), 'Deleted')}>
+                    <Popconfirm title={`Delete ${s.name}?`} description="Past runs stay under Tasks." okText="Delete" okButtonProps={{ danger: true }} onConfirm={() => act(() => api.del(`/api/schedules/${s.id}`), 'Deleted')}>
                       <Button size="small" danger>Delete</Button>
                     </Popconfirm>
                   )}

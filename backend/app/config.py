@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     vcenter_user: str = ""
     vcenter_password: str = ""
     vcenter_verify_ssl: bool = True
+    # Optional SSO account for managing vCenter's own services (Infrastructure page); defaults to the account above.
+    appliance_user: str = ""
+    appliance_password: str = ""
     owner_attribute: str = "Owner"  # vCenter custom attribute that, if set, defines the VM owner
     # Shared accounts that say nothing about who owns a VM; never suggested as owners (comma-separated).
     owner_ignore_users: str = "administrator@vsphere.local"

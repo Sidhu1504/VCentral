@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Alert, App, Button, Card, Descriptions, Form, Input, InputNumber, Radio, Skeleton, Space, Switch, Tag, Typography } from 'antd'
+import { Alert, App, Button, Card, Descriptions, Form, Input, InputNumber, Radio, Skeleton, Space, Switch, Tag, Tooltip, Typography } from 'antd'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import { INTERVAL_LABEL } from '../format'
+import PageHeader from '../components/PageHeader'
 
 const FIELDS = [
   {
@@ -58,9 +59,9 @@ export default function Settings() {
   const perDay = samples >= 1e6 ? `${(samples / 1e6).toFixed(1)} million` : `${Math.round(samples / 1000)} thousand`
   return (
     <>
-      <Typography.Title level={3} style={{ marginTop: 0 }}>Settings</Typography.Title>
+      <PageHeader title="Settings" description="How often vCentral collects data, who may sign up, and the onboarding digest sent to the admin team." />
       {!editable && <Alert type="info" showIcon style={{ marginBottom: 16 }} message="Only admins can change these settings." />}
-      <Card size="small" style={{ maxWidth: 820 }}>
+      <Card size="small" title="Data collection" style={{ maxWidth: 820 }}>
         <Form form={form} layout="vertical" onFinish={save} disabled={!editable}>
           {FIELDS.map((f) => (
             <Form.Item key={f.key} name={f.key} label={<b>{f.label}</b>} extra={f.help}>
@@ -160,20 +161,24 @@ function OnboardingSettings({ data, setData, editable }) {
         (admin emails and the Google Chat space). Nothing is ever sent to VM owners or other end users.
       </Typography.Paragraph>
       <Form form={form} layout="inline" onFinish={save} disabled={!editable} style={{ rowGap: 12 }}>
-        <Form.Item name="enabled" label="Send digest" valuePropName="checked"><Switch /></Form.Item>
-        <Form.Item name="every_days" label="Every" rules={[{ required: true }]}>
+        <Form.Item name="enabled" label="Send digest" valuePropName="checked"
+          tooltip="Sends the digest to the admin team automatically. Off: it is only sent when someone clicks Send digest now on the Onboarding page.">
+          <Switch />
+        </Form.Item>
+        <Form.Item name="every_days" label="Every" rules={[{ required: true }]} tooltip="Days between two automatic digests">
           <InputNumber min={1} max={30} addonAfter="days" style={{ width: 130 }} />
         </Form.Item>
         <Form.Item name="include_after_days" label="Include VMs without agent for" rules={[{ required: true }]}
           tooltip="Gives the team time to install the agent on brand-new VMs before they appear in the digest">
           <InputNumber min={0} max={30} addonAfter="days" style={{ width: 130 }} />
         </Form.Item>
-        <Form.Item name="overdue_after_days" label="Overdue after" rules={[{ required: true }]}>
+        <Form.Item name="overdue_after_days" label="Overdue after" rules={[{ required: true }]}
+          tooltip="VMs without the agent for this many days are marked overdue, listed first in the digest and highlighted on the Onboarding page">
           <InputNumber min={1} max={180} addonAfter="days" style={{ width: 140 }} />
         </Form.Item>
         {editable && <Form.Item><Button type="primary" htmlType="submit" loading={saving}>Save</Button></Form.Item>}
       </Form>
-      <Descriptions size="small" column={1} style={{ marginTop: 20 }} title="Delivery (set in .env)">
+      <Descriptions size="small" column={1} style={{ marginTop: 20 }} title={<Tooltip title="Set in the vCentral server's .env file, not here."><span>Delivery (set in .env)</span></Tooltip>}>
         <Descriptions.Item label="Email">{status(n.email, `${n.smtp_from} via ${n.smtp_host}`)}</Descriptions.Item>
         <Descriptions.Item label="Google Chat">{status(n.chat, 'webhook set')}</Descriptions.Item>
         <Descriptions.Item label="Admin team emails">{n.admin_emails.length ? n.admin_emails.join(', ') : <Tag>none</Tag>}</Descriptions.Item>
@@ -182,8 +187,12 @@ function OnboardingSettings({ data, setData, editable }) {
       {editable && (
         <Space wrap style={{ marginTop: 8 }}>
           <Input placeholder="Send test email to (default: you / admins)" style={{ width: 300 }} value={testTo} onChange={(e) => setTestTo(e.target.value)} />
-          <Button onClick={() => test('email')}>Send test email</Button>
-          <Button onClick={() => test('chat')}>Send test to Google Chat</Button>
+          <Tooltip title="Sends a short test message to check the email settings. Goes to the address typed here, otherwise to your own email (or the admin emails if your account has none).">
+            <Button onClick={() => test('email')}>Send test email</Button>
+          </Tooltip>
+          <Tooltip title="Posts a short test message to the configured Google Chat space.">
+            <Button onClick={() => test('chat')}>Send test to Google Chat</Button>
+          </Tooltip>
         </Space>
       )}
     </Card>

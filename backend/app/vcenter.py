@@ -423,12 +423,37 @@ class VCenterClient:
     def wake(self, instance_uuid: str) -> None:
         """Press F15 on the VM's keyboard (through vCenter, no network or login needed). F15 does nothing in
         applications, but counts as user activity, so a guest in idle sleep / standby wakes up."""
+        vm = self._find_vm(instance_uuid)
+        f15 = vim.vm.UsbScanCodeSpec.KeyEvent(usbHidCode=(0x6A << 16) | 7)  # HID usage 0x6A = F15
+        vm.PutUsbScanCodes(vim.vm.UsbScanCodeSpec(keyEvents=[f15]))
+
+    def _find_vm(self, instance_uuid: str):
         self.ensure_connected()
         vm = self.si.content.searchIndex.FindByUuid(None, instance_uuid, True, True)
         if vm is None:
             raise LookupError("VM not found in vCenter")
-        f15 = vim.vm.UsbScanCodeSpec.KeyEvent(usbHidCode=(0x6A << 16) | 7)  # HID usage 0x6A = F15
-        vm.PutUsbScanCodes(vim.vm.UsbScanCodeSpec(keyEvents=[f15]))
+        return vm
+
+    def mount_tools_installer(self, instance_uuid: str) -> bool:
+        """Attach the VMware Tools installer ISO to the VM's CD drive (what the vSphere Client's 'Install VMware
+        Tools' does). Returns False when it was already mounted. Needs Virtual machine > Interaction > Install
+        VMware Tools."""
+        vm = self._find_vm(instance_uuid)
+        if getattr(vm.runtime, "toolsInstallerMounted", False):
+            return False
+        vm.MountToolsInstaller()
+        return True
+
+    def upgrade_tools(self, instance_uuid: str) -> None:
+        """Start vCenter's own VMware Tools upgrade (only for VMs where Tools runs and is managed by VMware,
+        not open-vm-tools). Starts a vCenter task and returns without waiting for it."""
+        vm = self._find_vm(instance_uuid)
+        vm.UpgradeTools_Task(installerOptions="/S /v \"/qn REBOOT=R\"" if self._is_windows(vm) else None)
+
+    @staticmethod
+    def _is_windows(vm) -> bool:
+        guest = (getattr(vm.config, "guestId", "") or "").lower()
+        return guest.startswith("win")
 
     def user_activity(self) -> dict[str, dict[str, dict]]:
         """VM moid -> {user: {"count": n, "last": ts, "kinds": set}} from the activity events vCenter still keeps."""

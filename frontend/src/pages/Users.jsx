@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, App, Button, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography } from 'antd'
+import { Alert, App, Button, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import { fmtAgo } from '../format'
+import PageHeader from '../components/PageHeader'
+
+const ROLE_TIP = {
+  admin: 'Admin: everything, including users, settings, the audit log, and writing or scheduling scripts.',
+  operator: 'Operator: runs library scripts, installs and manages agents, connects to VMs, edits owners and notes, marks critical VMs.',
+  viewer: 'Viewer: read-only. Sees VMs, IPs, owners and agent inventory, but not task scripts or output.',
+}
 
 const ROLES = [
   { value: 'admin', label: 'Admin: everything, including users and audit log' },
-  { value: 'operator', label: 'Operator: install agents, mark critical VMs, edit owners/notes, trigger sync' },
+  { value: 'operator', label: 'Operator: run library scripts, install and manage agents, connect to VMs, edit owners/notes, mark critical VMs' },
   { value: 'viewer', label: 'Viewer: read-only' },
 ]
 
@@ -46,7 +53,12 @@ function UserModal({ user, open, onClose, onSaved }) {
         <Form.Item name="full_name" label="Full name"><Input /></Form.Item>
         <Form.Item name="email" label="Email" rules={[{ type: 'email' }]}><Input /></Form.Item>
         <Form.Item name="role" label="Role" rules={[{ required: true }]}><Select options={ROLES} /></Form.Item>
-        {!isNew && <Form.Item name="is_active" label="Active" valuePropName="checked"><Switch /></Form.Item>}
+        {!isNew && (
+          <Form.Item name="is_active" label="Active" valuePropName="checked"
+            tooltip="Turn off to block sign-in without deleting the account. Changing the role, this switch or the password signs the user out everywhere.">
+            <Switch />
+          </Form.Item>
+        )}
         <Form.Item
           name="password" label={isNew ? 'Temporary password' : 'Reset password'}
           extra="The user must choose a new password at next sign-in."
@@ -95,10 +107,9 @@ export default function Users() {
 
   return (
     <>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }} wrap>
-        <Typography.Title level={3} style={{ margin: 0 }}>Users</Typography.Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setModal({ open: true, user: null })}>Add user</Button>
-      </Space>
+      <PageHeader title="Users"
+        description="Who can sign in to vCentral and what they may do. Approve sign-up requests, change roles, reset passwords or disable accounts here."
+        extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setModal({ open: true, user: null })}>Add user</Button>} />
       {pending.length > 0 && (
         <Alert type="warning" showIcon style={{ marginBottom: 16 }}
           message={`${pending.length} sign-up request${pending.length === 1 ? '' : 's'} waiting for approval`}
@@ -110,24 +121,39 @@ export default function Users() {
           { title: 'Username', dataIndex: 'username' },
           { title: 'Name', dataIndex: 'full_name' },
           { title: 'Email', dataIndex: 'email' },
-          { title: 'Role', dataIndex: 'role', render: (r) => <Tag color={r === 'admin' ? 'gold' : r === 'operator' ? 'blue' : 'default'}>{r}</Tag> },
-          { title: 'Status', dataIndex: 'is_active', render: (a, u) => (u.pending_approval ? <Tag color="orange">Waiting for approval</Tag> : !a ? <Tag>Disabled</Tag> : u.must_change_password ? <Tag color="warning">Must set password</Tag> : <Tag color="success">Active</Tag>) },
+          { title: 'Role', dataIndex: 'role', render: (r) => <Tooltip title={ROLE_TIP[r]}><Tag color={r === 'admin' ? 'gold' : r === 'operator' ? 'blue' : 'default'}>{r}</Tag></Tooltip> },
+          {
+            title: 'Status', dataIndex: 'is_active',
+            render: (a, u) => (u.pending_approval
+              ? <Tooltip title="Signed up on the login page and cannot sign in until an admin approves."><Tag color="orange">Waiting for approval</Tag></Tooltip>
+              : !a ? <Tooltip title="Cannot sign in. Edit the user and turn Active back on to allow it."><Tag>Disabled</Tag></Tooltip>
+                : u.must_change_password ? <Tooltip title="Has a temporary password and must choose a new one at the next sign-in."><Tag color="warning">Must set password</Tag></Tooltip>
+                  : <Tag color="success">Active</Tag>),
+          },
           { title: 'Last sign-in', dataIndex: 'last_login_at', render: fmtAgo },
           {
             title: '', key: 'actions', width: 200,
             render: (_, u) => u.pending_approval ? (
               <Space>
-                <Button size="small" type="primary" onClick={() => approve(u)}>Approve</Button>
+                <Tooltip title="Lets this person sign in as a Viewer (read-only). Change the role afterwards with Edit if needed.">
+                  <Button size="small" type="primary" onClick={() => approve(u)}>Approve</Button>
+                </Tooltip>
                 <Popconfirm title={`Reject ${u.username}'s sign-up?`} description="The request is deleted." okText="Reject" okButtonProps={{ danger: true }} onConfirm={() => remove(u)}>
-                  <Button size="small" danger>Reject</Button>
+                  <Tooltip title="Deletes this sign-up request. The person can sign up again while sign-up is allowed.">
+                    <Button size="small" danger>Reject</Button>
+                  </Tooltip>
                 </Popconfirm>
               </Space>
             ) : (
               <Space>
-                <Button size="small" onClick={() => setModal({ open: true, user: u })}>Edit</Button>
+                <Tooltip title="Change name, email or role, disable the account, or reset the password.">
+                  <Button size="small" onClick={() => setModal({ open: true, user: u })}>Edit</Button>
+                </Tooltip>
                 {u.id !== me.id && (
-                  <Popconfirm title={`Delete ${u.username}?`} okText="Delete" okButtonProps={{ danger: true }} onConfirm={() => remove(u)}>
-                    <Button size="small" danger>Delete</Button>
+                  <Popconfirm title={`Delete ${u.username}?`} description="Their past actions stay in the audit log." okText="Delete" okButtonProps={{ danger: true }} onConfirm={() => remove(u)}>
+                    <Tooltip title="Removes the account permanently. To block sign-in but keep the account, use Edit and turn off Active.">
+                      <Button size="small" danger>Delete</Button>
+                    </Tooltip>
                   </Popconfirm>
                 )}
               </Space>

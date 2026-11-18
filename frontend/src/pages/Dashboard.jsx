@@ -6,12 +6,13 @@ import { api } from '../api'
 import Chart, { axisStyle, baseOption, useViz } from '../components/Chart'
 import { CriticalStar, HealthTag } from '../components/Health'
 import UsageBar from '../components/UsageBar'
+import PageHeader, { HelpLabel } from '../components/PageHeader'
 import { EVENT_KINDS, fmtAgo, fmtDate, fmtGB, OS_LABEL, STATUS, usageColor } from '../format'
 
-function Tile({ title, value, to, hint }) {
+function Tile({ title, value, to, hint, tip }) {
   const body = (
     <Card size="small" hoverable={!!to} style={{ height: '100%' }}>
-      <Statistic title={title} value={value} />
+      <Statistic title={tip ? <HelpLabel tip={tip}>{title}</HelpLabel> : title} value={value} />
       {hint && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{hint}</Typography.Text>}
     </Card>
   )
@@ -84,7 +85,7 @@ export default function Dashboard() {
   const a = data.allocated
   return (
     <>
-      <Typography.Title level={3} style={{ marginTop: 0 }}>Dashboard</Typography.Title>
+      <PageHeader title="Dashboard" description="What needs attention across all VMs, at a glance. Click a tile to open the matching list." />
       {!data.sync?.status && (
         <Alert style={{ marginBottom: 16 }} type="info" showIcon
           message="Waiting for the first vCenter sync. Make sure the worker is running and vCenter settings are correct." />
@@ -92,23 +93,25 @@ export default function Dashboard() {
       <Row gutter={[16, 16]}>
         <Col xs={12} md={6} xl={3}>
           <Tile title={<Space size={6}><CloseCircleFilled style={{ color: STATUS.critical }} />Critical problems</Space>}
-            value={t.health_critical} to="/vms?health=critical&status=all" hint={`${t.critical_vms} VMs marked critical`} />
+            value={t.health_critical} to="/vms?health=critical&status=all" hint={`${t.critical_vms} VMs marked critical`}
+            tip="VMs marked critical that are powered off, deleted, have no IP or whose agent stopped reporting." />
         </Col>
         <Col xs={12} md={6} xl={3}>
           <Tile title={<Space size={6}><ExclamationCircleFilled style={{ color: STATUS.warning }} />Warnings</Space>}
-            value={t.health_warning} to="/vms?health=warning" />
+            value={t.health_warning} to="/vms?health=warning"
+            tip="Other VMs with a problem: no IP address, or the agent stopped reporting." />
         </Col>
-        <Col xs={12} md={6} xl={3}><Tile title="No IP address" value={t.no_ip} to="/vms?health=problem" hint="Powered-on VMs" /></Col>
+        <Col xs={12} md={6} xl={3}><Tile title="No IP address" value={t.no_ip} to="/vms?health=problem" hint="Powered-on VMs" tip="Powered-on VMs that report no IP address, usually a network or DHCP problem inside the VM." /></Col>
         <Col xs={12} md={6} xl={3}><Tile title="Total VMs" value={t.total} to="/vms" hint={`${t.powered_on} on · ${t.powered_off} off`} /></Col>
         <Col xs={12} md={6} xl={3}>
-          <Tile title="Agent installed" value={t.managed} to="/vms?agent=online"
+          <Tile title="Agent installed" value={t.managed} to="/vms?agent=online" tip="VMs with a vCentral agent linked to them. Not linked: agents vCentral could not match to a VM (see Agents)."
             hint={`${t.agents_online} online · ${t.agents_offline} offline${t.agents_unlinked ? ` · ${t.agents_unlinked} not linked` : ''}`} />
         </Col>
-        <Col xs={12} md={6} xl={3}><Tile title="Owner unknown" value={t.owner_unknown} to="/owners" hint="See suggestions" /></Col>
+        <Col xs={12} md={6} xl={3}><Tile title="Owner unknown" value={t.owner_unknown} to="/owners" hint="See suggestions" tip="VMs with no owner from vCenter or vCentral. The Owners page suggests owners from vCenter's history." /></Col>
         <Col xs={12} md={6} xl={3}>
           <Tile title="Created / deleted (7 days)" value={`${t.created_7d} / ${t.deleted_7d}`} to="/activity" />
         </Col>
-        <Col xs={12} md={6} xl={3}><Tile title={`Disks ≥ ${data.disk_warnings.threshold}%`} value={data.disk_warnings.count} hint="From VMware Tools" /></Col>
+        <Col xs={12} md={6} xl={3}><Tile title={`Disks ≥ ${data.disk_warnings.threshold}%`} value={data.disk_warnings.count} hint="From VMware Tools" tip="Powered-on VMs with at least one drive or mount point this full, as reported by VMware Tools." /></Col>
       </Row>
 
       <Card size="small" style={{ marginTop: 16 }}
@@ -181,7 +184,7 @@ export default function Dashboard() {
           </Card>
         </Col>
         <Col xs={24} md={12} xl={8}>
-          <Card title="Top active memory" size="small" extra={<Link to="/vms?sort=mem_pct&order=desc">All</Link>}>
+          <Card title={<HelpLabel tip="vCenter active memory: memory the guest touched recently. Usually lower than in-guest used memory.">Top active memory</HelpLabel>} size="small" extra={<Link to="/vms?sort=mem_pct&order=desc">All</Link>}>
             <TopList items={data.top_mem} empty="No powered-on VMs" />
           </Card>
         </Col>

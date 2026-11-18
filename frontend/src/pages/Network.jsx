@@ -6,16 +6,17 @@ import { api } from '../api'
 import { useAuth } from '../auth'
 import { useViz } from '../components/Chart'
 import { fmtAgo, STATUS } from '../format'
+import PageHeader, { HelpLabel } from '../components/PageHeader'
 
 // Colours: VM use is the main series colour; everything else that blocks an address has its own.
 const STATE = {
-  conflict: { label: 'Conflict (2+ VMs)', color: STATUS.critical, tag: 'error' },
-  used: { label: 'VM', tag: 'processing' },
-  infra: { label: 'Infrastructure', color: '#8b5cf6', tag: 'purple' },
-  template: { label: 'Template', color: '#06b6d4', tag: 'cyan' },
-  reserved: { label: 'Reserved', color: '#64748b', tag: 'default' },
-  stale: { label: 'Powered-off VM', color: STATUS.warning, tag: 'warning' },
-  device: { label: 'Other device', color: '#ec835a', tag: 'orange' },
+  conflict: { label: 'Conflict (2+ VMs)', color: STATUS.critical, tag: 'error', tip: 'Two or more powered-on VMs report this address. One of them needs a different IP.' },
+  used: { label: 'VM', tag: 'processing', tip: 'A powered-on VM uses this address.' },
+  infra: { label: 'Infrastructure', color: '#8b5cf6', tag: 'purple', tip: 'A gateway, DNS server, ESXi host or vCenter Server, as found through vCenter. Do not give it to a VM.' },
+  template: { label: 'Template', color: '#06b6d4', tag: 'cyan', tip: 'The IP a VM template had. VMs deployed from it may start with this address, so it is kept taken.' },
+  reserved: { label: 'Reserved', color: '#64748b', tag: 'default', tip: 'Reserved by hand in vCentral (printer, firewall, DHCP pool, promised to a new VM…). Never shown as free.' },
+  stale: { label: 'Powered-off VM', color: STATUS.warning, tag: 'warning', tip: 'Last IP of a VM that is now powered off. Kept taken so the VM does not clash when it starts again.' },
+  device: { label: 'Other device', color: '#ec835a', tag: 'orange', tip: 'Not a VM, but something answered the network scan here (laptop, appliance, physical server…). Reserve it to label it.' },
 }
 
 function ipToInt(ip) {
@@ -84,9 +85,9 @@ function Legend() {
   return (
     <Space wrap size={14}>
       {item(viz.series[0], 'VM')}
-      {Object.entries(STATE).filter(([k]) => k !== 'used').map(([, s]) => item(s.color, s.label))}
-      {item('transparent', 'Free', `1px solid ${viz.grid}`)}
-      {item('transparent', 'Has a warning', `2px solid ${STATUS.critical}`)}
+      {Object.entries(STATE).filter(([k]) => k !== 'used').map(([k, s]) => <Tooltip key={k} title={s.tip}>{item(s.color, s.label)}</Tooltip>)}
+      <Tooltip title="Nothing claims this address: no VM, template, infrastructure, reservation or device answering the scan.">{item('transparent', 'Free', `1px solid ${viz.grid}`)}</Tooltip>
+      <Tooltip title="Something looks wrong with this address, e.g. a VM uses a reserved or infrastructure IP. See the Warnings column.">{item('transparent', 'Has a warning', `2px solid ${STATUS.critical}`)}</Tooltip>
     </Space>
   )
 }
@@ -150,10 +151,13 @@ export default function Network() {
 
   return (
     <>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }} wrap>
-        <Typography.Title level={3} style={{ margin: 0 }}>IP & subnets</Typography.Title>
-        {canEdit && <Button icon={<PlusOutlined />} onClick={() => setReserving({})}>Reserve addresses</Button>}
-      </Space>
+      <PageHeader title="IP & subnets"
+        description="Find a free IP address for a new VM and spot address conflicts. Hover a square in the map, or a state, to see what holds it."
+        extra={canEdit && (
+          <Tooltip title="Mark an address or range as taken, for things vCentral cannot see or addresses you want to keep free.">
+            <Button icon={<PlusOutlined />} onClick={() => setReserving({})}>Reserve addresses</Button>
+          </Tooltip>
+        )} />
       <Typography.Paragraph type="secondary">
         An address is shown as free only when nothing claims it: no VM (running or powered off), no template, no
         gateway, DNS server, ESXi host or vCenter, no reservation, and nothing answered the network scan.{' '}
@@ -169,14 +173,14 @@ export default function Network() {
       {data.subnets.map((s) => (
         <Card key={s.cidr} title={s.cidr} size="small" style={{ marginBottom: 16 }} extra={<Legend />}>
           <Row gutter={[16, 8]}>
-            <Col xs={12} sm={8} lg={3}><Statistic title="Usable" value={s.usable} /></Col>
-            <Col xs={12} sm={8} lg={3}><Statistic title="Free" value={s.free} valueStyle={{ color: STATUS.good }} /></Col>
-            <Col xs={12} sm={8} lg={3}><Statistic title="VMs" value={s.used} /></Col>
-            <Col xs={12} sm={8} lg={3}><Statistic title="Infrastructure" value={s.counts.infra} /></Col>
-            <Col xs={12} sm={8} lg={3}><Statistic title="Templates" value={s.counts.template} /></Col>
-            <Col xs={12} sm={8} lg={3}><Statistic title="Reserved" value={s.counts.reserved} /></Col>
-            <Col xs={12} sm={8} lg={3}><Statistic title="Powered-off VMs" value={s.counts.stale} /></Col>
-            <Col xs={12} sm={8} lg={3}><Statistic title="Other devices" value={s.counts.device} /></Col>
+            <Col xs={12} sm={8} lg={3}><Statistic title={<HelpLabel tip="Addresses in the subnet, without the network and broadcast addresses">Usable</HelpLabel>} value={s.usable} /></Col>
+            <Col xs={12} sm={8} lg={3}><Statistic title={<HelpLabel tip="Usable addresses nothing claims. Safe to give to a new VM.">Free</HelpLabel>} value={s.free} valueStyle={{ color: STATUS.good }} /></Col>
+            <Col xs={12} sm={8} lg={3}><Statistic title={<HelpLabel tip={STATE.used.tip + ' Conflicts are included.'}>VMs</HelpLabel>} value={s.used} /></Col>
+            <Col xs={12} sm={8} lg={3}><Statistic title={<HelpLabel tip={STATE.infra.tip}>Infrastructure</HelpLabel>} value={s.counts.infra} /></Col>
+            <Col xs={12} sm={8} lg={3}><Statistic title={<HelpLabel tip={STATE.template.tip}>Templates</HelpLabel>} value={s.counts.template} /></Col>
+            <Col xs={12} sm={8} lg={3}><Statistic title={<HelpLabel tip={STATE.reserved.tip}>Reserved</HelpLabel>} value={s.counts.reserved} /></Col>
+            <Col xs={12} sm={8} lg={3}><Statistic title={<HelpLabel tip={STATE.stale.tip}>Powered-off VMs</HelpLabel>} value={s.counts.stale} /></Col>
+            <Col xs={12} sm={8} lg={3}><Statistic title={<HelpLabel tip={STATE.device.tip}>Other devices</HelpLabel>} value={s.counts.device} /></Col>
           </Row>
           {(s.conflicts > 0 || s.warnings > 0) && (
             <Alert type="error" showIcon style={{ marginTop: 12 }}
@@ -185,7 +189,7 @@ export default function Network() {
           )}
           {s.next_free.length > 0 && (
             <div style={{ marginTop: 12 }}>
-              <Typography.Text type="secondary">Next free addresses (click to copy): </Typography.Text>
+              <Typography.Text type="secondary"><HelpLabel tip="The lowest free addresses in this subnet. Click one to copy it, e.g. for a new VM.">Next free addresses (click to copy)</HelpLabel>: </Typography.Text>
               <Space size={4} wrap>
                 {s.next_free.map((ip) => <Tag key={ip} color="success" style={{ cursor: 'pointer' }} icon={<CopyOutlined />} onClick={() => copy(ip)}>{ip}</Tag>)}
               </Space>
@@ -197,10 +201,10 @@ export default function Network() {
             columns={[
               { title: 'IP', dataIndex: 'ip', width: 130, sorter: (a, b) => ipToInt(a.ip) - ipToInt(b.ip) },
               {
-                title: 'Taken by', dataIndex: 'state', width: 160,
+                title: <HelpLabel tip="What claims the address. Hover a value for what it means. Only the first that applies is shown: VM, infrastructure, template, reserved, powered-off VM, other device.">Taken by</HelpLabel>, dataIndex: 'state', width: 170,
                 filters: Object.entries(STATE).map(([value, v]) => ({ text: v.label, value })),
                 onFilter: (v, r) => r.state === v,
-                render: (v) => <Tag color={STATE[v].tag}>{STATE[v].label}</Tag>,
+                render: (v) => <Tooltip title={STATE[v].tip}><Tag color={STATE[v].tag}>{STATE[v].label}</Tag></Tooltip>,
               },
               {
                 title: 'Who / what', key: 'who',
@@ -208,7 +212,7 @@ export default function Network() {
                   ? <>{vmLinks(r.stale_vms)} <Typography.Text type="secondary">(powered off)</Typography.Text></> : holder(r)),
               },
               {
-                title: 'Answers on network', dataIndex: 'device', width: 170,
+                title: <HelpLabel tip="Whether the vCentral server's network scan (ping, TCP probes and ARP) got an answer from this address, and when.">Answers on network</HelpLabel>, dataIndex: 'device', width: 190,
                 render: (d) => (d ? <Tooltip title={d.mac ? `MAC ${d.mac}` : null}>{d.last_seen ? `yes, ${fmtAgo(d.last_seen)}` : 'yes'}</Tooltip> : <Typography.Text type="secondary">—</Typography.Text>),
               },
               {
@@ -219,8 +223,8 @@ export default function Network() {
               ...(canEdit ? [{
                 title: '', key: 'a', width: 90,
                 render: (_, r) => (r.reservation
-                  ? <Popconfirm title={`Remove reservation "${r.reservation.label}"?`} onConfirm={() => unreserve(r.reservation)}><Button size="small">Unreserve</Button></Popconfirm>
-                  : !r.vms.length && <Button size="small" onClick={() => setReserving({ start_ip: r.ip, label: r.device ? 'Device' : '' })}>Reserve</Button>),
+                  ? <Popconfirm title={`Remove reservation "${r.reservation.label}"?`} description="If it is part of a range, the whole range is removed." onConfirm={() => unreserve(r.reservation)}><Tooltip title="Removes the reservation. The address shows as free again unless something else claims it."><Button size="small">Unreserve</Button></Tooltip></Popconfirm>
+                  : !r.vms.length && <Tooltip title="Mark this address as taken, with a label saying what it is for."><Button size="small" onClick={() => setReserving({ start_ip: r.ip, label: r.device ? 'Device' : '' })}>Reserve</Button></Tooltip>),
               }] : []),
             ]}
           />

@@ -1,18 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Alert, App, Breadcrumb, Button, Card, Collapse, Descriptions, Drawer, Popconfirm, Segmented, Skeleton, Space, Table, Tag, Typography } from 'antd'
+import { Alert, App, Breadcrumb, Button, Card, Collapse, Descriptions, Drawer, Popconfirm, Segmented, Skeleton, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import { codeStyle } from '../components/NewTaskModal'
+import { HelpLabel } from '../components/PageHeader'
 import { describeTargets } from '../components/TargetPicker'
 import { fmtDate, fmtDuration, TASK_STATUS } from '../format'
 import { OsIcon } from './VMs'
 import { RunBar, TaskStateTag } from './Tasks'
 
+const RUN_STATUS_TIP = {
+  pending: 'The agent picks the task up with its next report.',
+  sent: 'Handed to the agent; it has not started yet.',
+  running: 'The script is running on the VM.',
+  succeeded: 'Finished with exit code 0.',
+  failed: 'Finished with a non-zero exit code, or could not start. See the output.',
+  timeout: 'Stopped because it ran longer than the task timeout.',
+  cancelled: 'Cancelled by a user.',
+  skipped: 'Not run on this VM: no agent, or no script for its OS. See the note.',
+  expired: 'The agent did not pick the task up in time, probably because it was offline.',
+  lost: 'No result came back: the agent may have restarted or lost its connection.',
+}
+
 export function RunStatusTag({ status }) {
   const s = TASK_STATUS[status] || { label: status, color: 'default' }
-  return <Tag color={s.color}>{s.label}</Tag>
+  return <Tooltip title={RUN_STATUS_TIP[status]}><Tag color={s.color}>{s.label}</Tag></Tooltip>
 }
 
 const ACTIVE = ['pending', 'sent', 'running']
@@ -90,17 +104,27 @@ export default function TaskDetail() {
             {task.state === 'running' && (
               <Popconfirm title="Cancel this task?" description="Waiting runs are dropped; running scripts are stopped." okText="Cancel task" okButtonProps={{ danger: true }}
                 onConfirm={() => act(() => api.post(`/api/tasks/${task.id}/cancel`), 'Cancelling')}>
-                <Button danger>Cancel</Button>
+                <Tooltip title="Stops this task: VMs still waiting will not run it, and scripts already running are stopped by their agent at its next report.">
+                  <Button danger>Cancel</Button>
+                </Tooltip>
               </Popconfirm>
             )}
             {task.kind === 'script' && canRerun && task.state !== 'running' && (
               <>
-                {failed > 0 && <Button onClick={() => act(() => api.post(`/api/tasks/${task.id}/rerun`, { only_failed: true }), 'Re-running on failed VMs')}>Re-run failed ({failed})</Button>}
-                <Button onClick={() => act(() => api.post(`/api/tasks/${task.id}/rerun`, { only_failed: false }), 'Re-running')}>Re-run all</Button>
+                {failed > 0 && (
+                  <Tooltip title="Starts a new task with the same script and values, only on the VMs that failed, timed out, expired, lost contact or were cancelled.">
+                    <Button onClick={() => act(() => api.post(`/api/tasks/${task.id}/rerun`, { only_failed: true }), 'Re-running on failed VMs')}>Re-run failed ({failed})</Button>
+                  </Tooltip>
+                )}
+                <Tooltip title="Starts a new task with the same script and values on every VM of this task.">
+                  <Button onClick={() => act(() => api.post(`/api/tasks/${task.id}/rerun`, { only_failed: false }), 'Re-running')}>Re-run all</Button>
+                </Tooltip>
               </>
             )}
             {task.kind === 'script' && (
-              <Button icon={<DownloadOutlined />} href={api.url(`/api/tasks/${task.id}/results.csv`)}>Results (CSV)</Button>
+              <Tooltip title="Downloads one row per VM (status, exit code, times, note and full output) as a CSV file for Excel.">
+                <Button icon={<DownloadOutlined />} href={api.url(`/api/tasks/${task.id}/results.csv`)}>Results (CSV)</Button>
+              </Tooltip>
             )}
           </Space>
         )}
@@ -110,8 +134,8 @@ export default function TaskDetail() {
           <Descriptions.Item label="Progress"><RunBar counts={task.counts} total={task.total} /></Descriptions.Item>
           <Descriptions.Item label="Targets">{describeTargets(task.targets)}</Descriptions.Item>
           <Descriptions.Item label="Started by">{task.created_by}, {fmtDate(task.created_at)}</Descriptions.Item>
-          <Descriptions.Item label="Timeout">{task.timeout_seconds}s</Descriptions.Item>
-          <Descriptions.Item label="Waiting runs expire">{fmtDate(task.expires_at)}</Descriptions.Item>
+          <Descriptions.Item label={<HelpLabel tip="A script still running after this long is stopped and marked Timed out.">Timeout</HelpLabel>}>{task.timeout_seconds}s</Descriptions.Item>
+          <Descriptions.Item label={<HelpLabel tip="VMs whose agent has not picked the task up by then are marked Expired and do not run it.">Waiting runs expire</HelpLabel>}>{fmtDate(task.expires_at)}</Descriptions.Item>
           <Descriptions.Item label="Kind">{task.kind === 'update' ? 'Agent update' : task.script_id ? 'Library script' : 'Ad-hoc script'}</Descriptions.Item>
         </Descriptions>
         {(task.linux_script || task.windows_script) && (

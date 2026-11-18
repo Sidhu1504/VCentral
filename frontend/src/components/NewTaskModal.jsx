@@ -77,7 +77,7 @@ export default function NewTaskModal({ open, onClose, fixedTargets, title, scrip
                 {chosen.description?.replace(/^Starter script\. /, '') || 'No description.'} {chosen.linux_script ? 'Linux ✓' : 'No Linux version'} · {chosen.windows_script ? 'Windows ✓' : 'No Windows version'} · timeout {chosen.timeout_seconds}s
               </Typography.Paragraph>
             )}
-            {!admin && scripts.length === 0 && <Alert type="info" showIcon message="The library is empty. An admin can add scripts under Tasks → Scripts." />}
+            {!admin && scripts.length === 0 && <Alert type="info" showIcon message="The library is empty. An admin can add scripts in the Script library." />}
           </>
         ) : (
           <>
